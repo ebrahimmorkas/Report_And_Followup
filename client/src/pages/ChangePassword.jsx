@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api';
 import Alert from '../components/Alert';
+import PasswordInput from '../components/PasswordInput';
 
 const empty = { currentPassword: '', newPassword: '', confirmPassword: '' };
 
@@ -46,7 +47,7 @@ export default function ChangePassword() {
         ].map(([key, label, ac]) => (
           <div key={key}>
             <label className="label" htmlFor={key}>{label}</label>
-            <input id={key} type="password" className="input" autoComplete={ac} value={form[key]} onChange={set(key)} required />
+            <PasswordInput id={key} autoComplete={ac} value={form[key]} onChange={set(key)} required />
           </div>
         ))}
         <button className="btn-primary" disabled={busy}>

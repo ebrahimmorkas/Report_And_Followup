@@ -26,6 +26,7 @@ function readPayload(body) {
 
 export default createEntryRouter({
   Model: Report,
+  title: 'Report',
   activityFlag: 'showInReport',
   dateField: 'conductedDate',
   readPayload,
@@ -34,6 +35,8 @@ export default createEntryRouter({
     { header: 'Jamiat', key: 'jamiat', width: 18 },
     { header: 'Jamaat', key: 'jamaat', width: 28 },
     { header: 'Activity', key: 'activity', width: 24 },
+    { header: 'New Activity?', key: 'isNew', width: 13 },
+    { header: 'In Place Of', key: 'inPlaceOf', width: 22 },
     { header: 'Conducted Date', key: 'date', width: 15 },
     { header: 'Extra Activities', key: 'extras', width: 40 },
     { header: 'Remarks', key: 'remarks', width: 40 },
@@ -43,7 +46,9 @@ export default createEntryRouter({
   toRow: (d) => ({
     jamiat: d.jamiat?.name,
     jamaat: d.jamaat?.name,
-    activity: d.activity?.name,
+    activity: d.customActivity || d.activity?.name,
+    isNew: d.customActivity ? 'Yes' : '',
+    inPlaceOf: d.inPlaceOf?.name || '',
     date: formatDate(d.conductedDate),
     extras: d.extraActivities.map((e) => `${e.name} (${formatDate(e.date)})`).join('\n'),
     remarks: d.remarks,

@@ -6,12 +6,14 @@ import Activity from '../models/Activity.js';
 import { ROLES } from '../models/User.js';
 import { requireRole } from '../middleware/auth.js';
 import { isValidId } from '../utils/http.js';
-import { parseDateOnly } from '../utils/dates.js';
+import { parseDateOnly, formatDate } from '../utils/dates.js';
+import { activityLabel } from '../models/entryActivity.js';
 
 const POPULATE = [
   { path: 'jamiat', select: 'name' },
   { path: 'jamaat', select: 'name' },
   { path: 'activity', select: 'name' },
+  { path: 'inPlaceOf', select: 'name' },
   { path: 'createdBy', select: 'name mobile' },
   { path: 'updatedBy', select: 'name mobile' },
 ];
@@ -21,6 +23,7 @@ const POPULATE = [
  *
  * @param {object} cfg
  * @param {import('mongoose').Model} cfg.Model
+ * @param {string} cfg.title  'Report' | 'Follow-up' (used in messages)
  * @param {'showInReport'|'showInFollowUp'} cfg.activityFlag  which activities are allowed
  * @param {string} cfg.dateField   main date field used for sorting / date filters
  * @param {(body:any)=>({data?:object,error?:string})} cfg.readPayload  validates type-specific fields
@@ -45,10 +48,12 @@ export function createEntryRouter(cfg) {
       filter.jamiat = jamiat;
     }
 
-    for (const [key, val] of [['jamiat', jamiat], ['jamaat', jamaat], ['activity', activity]]) {
+    for (const val of [jamiat, jamaat, activity]) {
       if (val && !isValidId(val)) return null;
-      if (val && key !== 'jamiat') filter[key] = val;
     }
+    if (jamaat) filter.jamaat = jamaat;
+    // An activity filter also matches new activities done in place of it.
+    if (activity) filter.$or = [{ activity }, { inPlaceOf: activity }];
 
     const fromDate = from ? parseDateOnly(from) : null;
     const toDate = to ? parseDateOnly(to) : null;
@@ -61,26 +66,91 @@ export function createEntryRouter(cfg) {
     return filter;
   }
 
-  /** Validates jamaat/activity access and returns the full document payload. */
-  async function buildDoc(req) {
-    const { data, error } = cfg.readPayload(req.body || {});
+  const findListedActivity = (id) =>
+    isValidId(id) ? Activity.findOne({ _id: id, isActive: true, [cfg.activityFlag]: true }).lean() : null;
+
+  /**
+   * Resolves either a listed activity or a new (custom) activity with an optional "in place of".
+   * Returns the activity fields to store, a label for messages, or an error.
+   */
+  async function resolveActivity(body) {
+    const custom = typeof body.customActivity === 'string' ? body.customActivity.trim().replace(/\s+/g, ' ') : '';
+
+    if (!custom) {
+      if (!isValidId(body.activity)) return { error: 'Select an Activity' };
+      const activity = await findListedActivity(body.activity);
+      if (!activity) return { error: 'Activity not found or not available here' };
+      return {
+        fields: { activity: activity._id, customActivity: '', inPlaceOf: null, activityKey: `a:${activity._id}` },
+        label: activity.name,
+      };
+    }
+
+    if (custom.length > 100) return { error: 'New activity name is too long (max 100 characters)' };
+    const listed = await Activity.findOne({ name: custom }).collation({ locale: 'en', strength: 2 }).lean();
+    if (listed) return { error: `"${listed.name}" is already in the activity list. Select it from the dropdown instead.` };
+
+    let inPlaceOf = null;
+    if (body.inPlaceOf) {
+      inPlaceOf = await findListedActivity(body.inPlaceOf);
+      if (!inPlaceOf) return { error: '"In place of" activity not found or not available here' };
+    }
+    return {
+      fields: {
+        activity: null,
+        customActivity: custom,
+        inPlaceOf: inPlaceOf?._id ?? null,
+        activityKey: inPlaceOf ? `a:${inPlaceOf._id}` : `c:${custom.toLowerCase()}`,
+      },
+      label: inPlaceOf ? `${inPlaceOf.name} (done as ${custom})` : custom,
+    };
+  }
+
+  /** Validates jamaat/activity access and the duplicate rule; returns the full document payload. */
+  async function buildDoc(req, excludeId = null) {
+    const body = req.body || {};
+    const { data, error } = cfg.readPayload(body);
     if (error) return { error };
 
-    const { jamaat: jamaatId, activity: activityId } = req.body || {};
-    if (!isValidId(jamaatId)) return { error: 'Select a Jamaat' };
-    if (!isValidId(activityId)) return { error: 'Select an Activity' };
-
-    const jamaat = await Jamaat.findOne({ _id: jamaatId, isActive: true }).lean();
+    if (!isValidId(body.jamaat)) return { error: 'Select a Jamaat' };
+    const jamaat = await Jamaat.findOne({ _id: body.jamaat, isActive: true }).lean();
     if (!jamaat) return { error: 'Jamaat not found or inactive' };
     const allowed = req.user.jamiats.some((id) => String(id) === String(jamaat.jamiat));
     if (!allowed) return { status: 403, error: 'You do not have access to this Jamaat' };
     if (!(await Jamiat.exists({ _id: jamaat.jamiat, isActive: true })))
       return { error: 'This Jamiat is inactive' };
 
-    const activity = await Activity.findOne({ _id: activityId, isActive: true, [cfg.activityFlag]: true }).lean();
-    if (!activity) return { error: 'Activity not found or not available here' };
+    const act = await resolveActivity(body);
+    if (act.error) return { error: act.error };
 
-    return { doc: { ...data, jamaat: jamaat._id, jamiat: jamaat.jamiat, activity: activity._id } };
+    // One entry per Jamaat per activity (any date).
+    const dupFilter = { jamaat: jamaat._id, activityKey: act.fields.activityKey };
+    if (excludeId) dupFilter._id = { $ne: excludeId };
+    const dup = await cfg.Model.findOne(dupFilter).populate(POPULATE).lean();
+    if (dup) return { status: 409, error: duplicateMessage(dup, jamaat.name) };
+
+    return { doc: { ...data, ...act.fields, jamaat: jamaat._id, jamiat: jamaat.jamiat } };
+  }
+
+  function duplicateMessage(dup, jamaatName) {
+    return (
+      `A ${cfg.title} entry for ${activityLabel(dup)} in ${jamaatName} already exists ` +
+      `(dated ${formatDate(dup[cfg.dateField])}, entered by ${dup.createdBy?.name || 'unknown'}). ` +
+      'Edit that entry instead of adding a new one.'
+    );
+  }
+
+  /** Saves, turning a unique-index race into the same friendly 409. */
+  async function saveWithDuplicateGuard(fn, res) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e.code === 11000) {
+        res.status(409).json({ message: `This activity has already been entered for this Jamaat in ${cfg.title}.` });
+        return null;
+      }
+      throw e;
+    }
   }
 
   async function findOwned(req) {
@@ -131,7 +201,8 @@ export function createEntryRouter(cfg) {
   router.post('/', jcOnly, async (req, res) => {
     const { doc, error, status } = await buildDoc(req);
     if (error) return res.status(status || 400).json({ message: error });
-    const created = await cfg.Model.create({ ...doc, createdBy: req.user._id });
+    const created = await saveWithDuplicateGuard(() => cfg.Model.create({ ...doc, createdBy: req.user._id }), res);
+    if (!created) return;
     const item = await cfg.Model.findById(created._id).populate(POPULATE).lean();
     res.status(201).json({ item });
   });
@@ -139,10 +210,10 @@ export function createEntryRouter(cfg) {
   router.put('/:id', jcOnly, async (req, res) => {
     const existing = await findOwned(req);
     if (!existing) return res.status(404).json({ message: 'Entry not found' });
-    const { doc, error, status } = await buildDoc(req);
+    const { doc, error, status } = await buildDoc(req, existing._id);
     if (error) return res.status(status || 400).json({ message: error });
     existing.set({ ...doc, updatedBy: req.user._id });
-    await existing.save();
+    if (!(await saveWithDuplicateGuard(() => existing.save(), res))) return;
     const item = await cfg.Model.findById(existing._id).populate(POPULATE).lean();
     res.json({ item });
   });

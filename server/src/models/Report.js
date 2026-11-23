@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { activityFields, addDuplicateIndex } from './entryActivity.js';
 
 const { ObjectId } = mongoose.Schema.Types;
 
@@ -6,7 +7,7 @@ const reportSchema = new mongoose.Schema(
   {
     jamiat: { type: ObjectId, ref: 'Jamiat', required: true, index: true },
     jamaat: { type: ObjectId, ref: 'Jamaat', required: true, index: true },
-    activity: { type: ObjectId, ref: 'Activity', required: true, index: true },
+    ...activityFields,
     conductedDate: { type: Date, required: true, index: true },
     remarks: { type: String, trim: true, default: '' },
     extraActivities: [
@@ -21,5 +22,7 @@ const reportSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+addDuplicateIndex(reportSchema);
 
 export default mongoose.model('Report', reportSchema);

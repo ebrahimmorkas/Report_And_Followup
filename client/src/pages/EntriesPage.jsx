@@ -21,6 +21,7 @@ export default function EntriesPage({ kind }) {
   const [editing, setEditing] = useState(null); // null | 'new' | item
   const [exporting, setExporting] = useState(false);
 
+  const colCount = 6 + cfg.textFields.length + (isAdmin ? 0 : 1);
   const jamiats = useJamiats();
   const jamaats = useJamaats(filters.jamiat);
   const activities = useActivities(cfg.activityType);
@@ -137,24 +138,36 @@ export default function EntriesPage({ kind }) {
               <th className="th">Activity</th>
               <th className="th">{kind === 'report' ? 'Conducted' : 'Planned'}</th>
               <th className="th">Extra activities</th>
-              <th className="th">{cfg.textLabel}</th>
+              {cfg.textFields.map((f) => (
+                <th key={f.key} className="th">{f.label}</th>
+              ))}
               <th className="th">Entered by</th>
               {!isAdmin && <th className="th text-right">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading && (
-              <tr><td className="td py-8 text-center text-slate-400" colSpan={8}>Loading…</td></tr>
+              <tr><td className="td py-8 text-center text-slate-400" colSpan={colCount}>Loading…</td></tr>
             )}
             {!loading && data.items.length === 0 && (
-              <tr><td className="td py-8 text-center text-slate-400" colSpan={8}>No entries found</td></tr>
+              <tr><td className="td py-8 text-center text-slate-400" colSpan={colCount}>No entries found</td></tr>
             )}
             {!loading &&
               data.items.map((item) => (
                 <tr key={item._id} className="hover:bg-slate-50">
                   <td className="td">{item.jamiat?.name}</td>
                   <td className="td font-medium">{item.jamaat?.name}</td>
-                  <td className="td">{item.activity?.name}</td>
+                  <td className="td">
+                    {item.customActivity ? (
+                      <>
+                        {item.customActivity}
+                        <span className="badge ml-1 bg-indigo-50 text-indigo-600">new</span>
+                        {item.inPlaceOf && <div className="text-xs text-slate-500">in place of {item.inPlaceOf.name}</div>}
+                      </>
+                    ) : (
+                      item.activity?.name
+                    )}
+                  </td>
                   <td className="td whitespace-nowrap">{fmtDate(item[cfg.dateField])}</td>
                   <td className="td">
                     {item.extraActivities.length === 0 ? (
@@ -170,7 +183,11 @@ export default function EntriesPage({ kind }) {
                       </ul>
                     )}
                   </td>
-                  <td className="td max-w-xs whitespace-pre-wrap break-words">{item[cfg.textField] || <span className="text-slate-400">—</span>}</td>
+                  {cfg.textFields.map((f) => (
+                    <td key={f.key} className="td max-w-xs whitespace-pre-wrap break-words">
+                      {item[f.key] || <span className="text-slate-400">—</span>}
+                    </td>
+                  ))}
                   <td className="td text-xs text-slate-500">
                     {item.createdBy?.name}
                     <div>{fmtDate(item.createdAt)}</div>

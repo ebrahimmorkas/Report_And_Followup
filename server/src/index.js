@@ -15,6 +15,21 @@ import activityRoutes from './routes/activities.js';
 import masterRoutes from './routes/masters.js';
 import reportRoutes from './routes/reports.js';
 import followUpRoutes from './routes/followups.js';
+import Report from './models/Report.js';
+import FollowUp from './models/FollowUp.js';
+import { backfillActivityKeys } from './models/entryActivity.js';
+
+/** Builds indexes, then gives older entries their duplicate-rule key. */
+async function prepareEntries() {
+  for (const Model of [Report, FollowUp]) {
+    try {
+      await Model.init();
+      await backfillActivityKeys(Model);
+    } catch (err) {
+      console.warn(`! Could not prepare ${Model.modelName} duplicate rule:`, err.message);
+    }
+  }
+}
 
 if (!process.env.JWT_SECRET) {
   console.error('JWT_SECRET is not set in .env');
@@ -59,6 +74,7 @@ app.use((err, req, res, next) => {
 
 const port = Number(process.env.PORT) || 5000;
 connectDB()
+  .then(prepareEntries)
   .then(() => app.listen(port, () => console.log(`Server running on http://localhost:${port}`)))
   .catch((err) => {
     console.error('Failed to start:', err.message);

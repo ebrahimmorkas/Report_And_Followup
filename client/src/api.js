@@ -9,7 +9,12 @@ async function request(method, url, body) {
   if (res.status === 401 && !url.startsWith('/auth/login')) {
     window.dispatchEvent(new Event('auth:unauthorized'));
   }
-  if (!res.ok) throw new Error(data.message || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(data.message || data.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 

@@ -17,6 +17,51 @@ async function validateJamiats(ids) {
 
 const populateUser = (id) => User.findById(id).populate('jamiats', 'name isActive').lean();
 
+/**
+ * A Jamiat may belong to only one ACTIVE JC at a time (inactive JCs do not hold Jamiats).
+ * Returns the other active JCs that already hold any of `jamiatIds`.
+ */
+async function findConflicts(jamiatIds, excludeUserId) {
+  if (!jamiatIds.length) return [];
+  const filter = { role: ROLES.JC, isActive: true, jamiats: { $in: jamiatIds } };
+  if (excludeUserId) filter._id = { $ne: excludeUserId };
+  const owners = await User.find(filter).populate('jamiats', 'name').lean();
+
+  const wanted = new Set(jamiatIds.map(String));
+  const conflicts = [];
+  for (const owner of owners) {
+    for (const j of owner.jamiats) {
+      if (wanted.has(String(j._id))) {
+        conflicts.push({ jamiatId: j._id, jamiatName: j.name, userId: owner._id, userName: owner.name, userMobile: owner.mobile });
+      }
+    }
+  }
+  return conflicts;
+}
+
+/**
+ * Checks Jamiat ownership before saving an active JC.
+ * - No conflicts: returns true.
+ * - Conflicts and the request did not confirm (`transfer: true`): sends 409 with the list, returns false.
+ * - Conflicts and confirmed: removes those Jamiats from their current JCs, returns true.
+ * Report / Follow-up entries belong to the Jamiat, so they move with it automatically.
+ */
+async function checkOwnership(req, res, jamiatIds, excludeUserId) {
+  const conflicts = await findConflicts(jamiatIds, excludeUserId);
+  if (!conflicts.length) return true;
+
+  if (req.body?.transfer !== true) {
+    const list = conflicts.map((c) => `${c.jamiatName} (assigned to ${c.userName})`).join(', ');
+    res.status(409).json({ code: 'JAMIAT_CONFLICT', message: `Already assigned: ${list}`, conflicts });
+    return false;
+  }
+
+  const moving = conflicts.map((c) => c.jamiatId);
+  const fromUsers = [...new Set(conflicts.map((c) => String(c.userId)))];
+  await User.updateMany({ _id: { $in: fromUsers } }, { $pull: { jamiats: { $in: moving } } });
+  return true;
+}
+
 router.get('/', async (req, res) => {
   const users = await User.find().populate('jamiats', 'name isActive').sort({ role: -1, name: 1 }).lean();
   res.json({ users: users.map(publicUser) });
@@ -43,6 +88,8 @@ router.post('/', async (req, res) => {
   if (await User.exists({ mobile })) {
     return res.status(409).json({ message: 'A user with this mobile number already exists' });
   }
+
+  if (role === ROLES.JC && !(await checkOwnership(req, res, jamiats, null))) return;
 
   const user = await User.create({
     name: name.trim(),
@@ -103,6 +150,10 @@ router.put('/:id', async (req, res) => {
     user.password = await bcrypt.hash(password, 10);
     user.passwordChangedAt = new Date();
   }
+
+  // Ownership is checked last, so nothing is transferred if another validation fails.
+  // Also covers re-activating a JC whose Jamiats were given to someone else meanwhile.
+  if (user.role === ROLES.JC && user.isActive && !(await checkOwnership(req, res, user.jamiats, user._id))) return;
 
   await user.save();
   res.json({ user: publicUser(await populateUser(user._id)) });

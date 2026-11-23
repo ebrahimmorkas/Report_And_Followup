@@ -5,6 +5,7 @@ import Alert from '../components/Alert';
 import { KINDS } from './entryKinds';
 
 const emptyExtra = (withDate) => (withDate ? { name: '', date: '' } : { name: '' });
+const OTHER = '__other__';
 
 export default function EntryForm({ kind, initial, onSaved, onCancel }) {
   const cfg = KINDS[kind];
@@ -13,9 +14,13 @@ export default function EntryForm({ kind, initial, onSaved, onCancel }) {
 
   const [jamiat, setJamiat] = useState(initial?.jamiat?._id || '');
   const [jamaat, setJamaat] = useState(initial?.jamaat?._id || '');
-  const [activity, setActivity] = useState(initial?.activity?._id || '');
+  // activity = listed activity id, or OTHER for a new activity not in the system.
+  const [activity, setActivity] = useState(initial?.customActivity ? OTHER : initial?.activity?._id || '');
+  const [customActivity, setCustomActivity] = useState(initial?.customActivity || '');
+  const [inPlaceOf, setInPlaceOf] = useState(initial?.inPlaceOf?._id || '');
   const [date, setDate] = useState(toInputDate(initial?.[cfg.dateField]));
-  const [text, setText] = useState(initial?.[cfg.textField] || '');
+  const [texts, setTexts] = useState(Object.fromEntries(cfg.textFields.map((f) => [f.key, initial?.[f.key] || ''])));
+  const isOther = activity === OTHER;
   const [extras, setExtras] = useState(
     (initial?.extraActivities || []).map((e) => (cfg.extrasHaveDate ? { name: e.name, date: toInputDate(e.date) } : { name: e.name }))
   );
@@ -39,9 +44,9 @@ export default function EntryForm({ kind, initial, onSaved, onCancel }) {
     setBusy(true);
     const body = {
       jamaat,
-      activity,
+      ...(isOther ? { customActivity, inPlaceOf: inPlaceOf || null } : { activity }),
       [cfg.dateField]: date,
-      [cfg.textField]: text,
+      ...texts,
       extraActivities: extras,
     };
     try {
@@ -92,6 +97,7 @@ export default function EntryForm({ kind, initial, onSaved, onCancel }) {
             {activities.map((a) => (
               <option key={a._id} value={a._id}>{a.name}</option>
             ))}
+            <option value={OTHER}>+ Other (not in list)</option>
           </select>
         </div>
         <div>
@@ -100,9 +106,48 @@ export default function EntryForm({ kind, initial, onSaved, onCancel }) {
         </div>
       </div>
 
-      <div>
-        <label className="label">{cfg.textLabel}</label>
-        <textarea className="input" rows={3} maxLength={2000} value={text} onChange={(e) => setText(e.target.value)} />
+      {isOther && (
+        <div className="grid gap-4 rounded-md border border-indigo-200 bg-indigo-50/50 p-3 sm:grid-cols-2">
+          <div>
+            <label className="label">New activity name *</label>
+            <input
+              className="input"
+              placeholder="e.g. Walkathon"
+              maxLength={100}
+              value={customActivity}
+              onChange={(e) => setCustomActivity(e.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className="label">In place of (optional)</label>
+            <select className="input" value={inPlaceOf} onChange={(e) => setInPlaceOf(e.target.value)}>
+              <option value="">— Not in place of any activity —</option>
+              {activities.map((a) => (
+                <option key={a._id} value={a._id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+          <p className="text-xs text-slate-500 sm:col-span-2">
+            Saved on this entry only (not added to the activity list). Choose “In place of” if this was done instead of a
+            listed activity, e.g. Walkathon instead of ITNC.
+          </p>
+        </div>
+      )}
+
+      <div className={`grid gap-4 ${cfg.textFields.length > 1 ? 'sm:grid-cols-2' : ''}`}>
+        {cfg.textFields.map((f) => (
+          <div key={f.key}>
+            <label className="label">{f.label}</label>
+            <textarea
+              className="input"
+              rows={3}
+              maxLength={2000}
+              value={texts[f.key]}
+              onChange={(e) => setTexts((t) => ({ ...t, [f.key]: e.target.value }))}
+            />
+          </div>
+        ))}
       </div>
 
       <div>

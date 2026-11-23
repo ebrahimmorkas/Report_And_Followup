@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import Alert from '../components/Alert';
+import PasswordInput from '../components/PasswordInput';
 
 export default function Login() {
   const { login } = useAuth();
@@ -46,10 +47,8 @@ export default function Login() {
         </div>
         <div className="mb-5">
           <label className="label" htmlFor="password">Password</label>
-          <input
+          <PasswordInput
             id="password"
-            type="password"
-            className="input"
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
