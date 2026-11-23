@@ -20,6 +20,7 @@ import FollowUp from './models/FollowUp.js';
 import AuditLog from './models/AuditLog.js';
 import auditRoutes from './routes/audit.js';
 import { backfillEntries } from './models/entryActivity.js';
+import Activity from './models/Activity.js';
 
 /**
  * Brings indexes in line with the current schema (only index definitions change, never data),
@@ -35,6 +36,11 @@ async function prepareEntries() {
     }
   }
   await AuditLog.init().catch((err) => console.warn('! Audit log indexes:', err.message));
+
+  // Activities created before categories existed were all Tibb (confirmed by the user).
+  // Only adds the missing field; activities that already have a category are untouched.
+  const { modifiedCount } = await Activity.updateMany({ category: { $exists: false } }, { $set: { category: 'Tibb' } });
+  if (modifiedCount) console.log(`✓ ${modifiedCount} existing activit${modifiedCount === 1 ? 'y' : 'ies'} set to category Tibb`);
 }
 
 if (!process.env.JWT_SECRET) {

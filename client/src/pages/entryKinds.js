@@ -21,8 +21,8 @@ export const KINDS = {
     dateField: 'plannedDate',
     dateLabel: 'Date on which it will be done',
     textFields: [
-      { key: 'issues', label: 'Issues' },
       { key: 'description', label: 'Description' },
+      { key: 'issues', label: 'Issues' },
     ],
     extrasHaveDate: false,
     extrasHint: 'Extra activities that can be done with this event',

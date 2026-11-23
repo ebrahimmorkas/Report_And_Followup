@@ -3,6 +3,7 @@ import { api, toInputDate, todayInput } from '../api';
 import { useActivities, useJamaats, useJamiats } from '../hooks';
 import Alert from '../components/Alert';
 import { KINDS } from './entryKinds';
+import { CATEGORIES, groupByCategory } from '../categories';
 
 const emptyExtra = (withDate) => (withDate ? { name: '', date: '' } : { name: '' });
 const OTHER = '__other__';
@@ -18,9 +19,24 @@ export default function EntryForm({ kind, initial, onSaved, onCancel }) {
   const [activity, setActivity] = useState(initial?.customActivity ? OTHER : initial?.activity?._id || '');
   const [customActivity, setCustomActivity] = useState(initial?.customActivity || '');
   const [inPlaceOf, setInPlaceOf] = useState(initial?.inPlaceOf?._id || '');
+  const [customCategory, setCustomCategory] = useState(initial?.customCategory || initial?.inPlaceOf?.category || '');
   const [date, setDate] = useState(toInputDate(initial?.[cfg.dateField]));
   const [texts, setTexts] = useState(Object.fromEntries(cfg.textFields.map((f) => [f.key, initial?.[f.key] || ''])));
   const isOther = activity === OTHER;
+  const groups = groupByCategory(activities);
+  const options = groups.map((g) => (
+    <optgroup key={g.category} label={g.category}>
+      {g.items.map((a) => (
+        <option key={a._id} value={a._id}>{a.name}</option>
+      ))}
+    </optgroup>
+  ));
+  // Picking "In place of" pre-fills the new activity's category (the JC can still change it).
+  const onInPlaceOf = (id) => {
+    setInPlaceOf(id);
+    const cat = activities.find((a) => a._id === id)?.category;
+    if (cat) setCustomCategory(cat);
+  };
   const [extras, setExtras] = useState(
     (initial?.extraActivities || []).map((e) => (cfg.extrasHaveDate ? { name: e.name, date: toInputDate(e.date) } : { name: e.name }))
   );
@@ -44,7 +60,7 @@ export default function EntryForm({ kind, initial, onSaved, onCancel }) {
     setBusy(true);
     const body = {
       jamaat,
-      ...(isOther ? { customActivity, inPlaceOf: inPlaceOf || null } : { activity }),
+      ...(isOther ? { customActivity, customCategory, inPlaceOf: inPlaceOf || null } : { activity }),
       [cfg.dateField]: date,
       ...texts,
       extraActivities: extras,
@@ -94,9 +110,7 @@ export default function EntryForm({ kind, initial, onSaved, onCancel }) {
           <label className="label">Activity *</label>
           <select className="input" value={activity} onChange={(e) => setActivity(e.target.value)} required>
             <option value="">Select Activity</option>
-            {activities.map((a) => (
-              <option key={a._id} value={a._id}>{a.name}</option>
-            ))}
+            {options}
             <option value={OTHER}>+ Other (not in list)</option>
           </select>
         </div>
@@ -107,7 +121,7 @@ export default function EntryForm({ kind, initial, onSaved, onCancel }) {
       </div>
 
       {isOther && (
-        <div className="grid gap-4 rounded-md border border-indigo-200 bg-indigo-50/50 p-3 sm:grid-cols-2">
+        <div className="grid gap-4 rounded-md border border-indigo-200 bg-indigo-50/50 p-3 sm:grid-cols-3">
           <div>
             <label className="label">New activity name *</label>
             <input
@@ -121,14 +135,21 @@ export default function EntryForm({ kind, initial, onSaved, onCancel }) {
           </div>
           <div>
             <label className="label">In place of (optional)</label>
-            <select className="input" value={inPlaceOf} onChange={(e) => setInPlaceOf(e.target.value)}>
+            <select className="input" value={inPlaceOf} onChange={(e) => onInPlaceOf(e.target.value)}>
               <option value="">— Not in place of any activity —</option>
-              {activities.map((a) => (
-                <option key={a._id} value={a._id}>{a.name}</option>
+              {options}
+            </select>
+          </div>
+          <div>
+            <label className="label">Category *</label>
+            <select className="input" value={customCategory} onChange={(e) => setCustomCategory(e.target.value)} required>
+              <option value="">Select category</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
-          <p className="text-xs text-slate-500 sm:col-span-2">
+          <p className="text-xs text-slate-500 sm:col-span-3">
             Saved on this entry only (not added to the activity list). Choose “In place of” if this was done instead of a
             listed activity, e.g. Walkathon instead of ITNC.
           </p>

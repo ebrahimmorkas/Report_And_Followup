@@ -2,19 +2,19 @@ import { Router } from 'express';
 import ExcelJS from 'exceljs';
 import Jamaat from '../models/Jamaat.js';
 import Jamiat from '../models/Jamiat.js';
-import Activity from '../models/Activity.js';
+import Activity, { CATEGORIES } from '../models/Activity.js';
 import { ROLES } from '../models/User.js';
 import { requireRole } from '../middleware/auth.js';
 import { isValidId } from '../utils/http.js';
 import { parseDateOnly, formatDate } from '../utils/dates.js';
-import { activityLabel, NOT_DELETED } from '../models/entryActivity.js';
+import { activityLabel, categoryFilter, entryCategory, NOT_DELETED } from '../models/entryActivity.js';
 import { audit } from '../utils/audit.js';
 
 const POPULATE = [
   { path: 'jamiat', select: 'name' },
   { path: 'jamaat', select: 'name' },
-  { path: 'activity', select: 'name' },
-  { path: 'inPlaceOf', select: 'name' },
+  { path: 'activity', select: 'name category' },
+  { path: 'inPlaceOf', select: 'name category' },
   { path: 'createdBy', select: 'name mobile' },
   { path: 'updatedBy', select: 'name mobile' },
   { path: 'deletedBy', select: 'name mobile' },
@@ -42,8 +42,8 @@ export function createEntryRouter(cfg) {
   const adminOnly = requireRole(ROLES.SUPER_ADMIN);
 
   /** Builds the Mongo filter from query params, restricted to the user's Jamiats. Excludes deleted entries. */
-  function buildFilter(req) {
-    const { jamiat, jamaat, activity, from, to } = req.query;
+  async function buildFilter(req) {
+    const { jamiat, jamaat, activity, category, from, to } = req.query;
     const filter = { ...NOT_DELETED };
 
     if (req.user.role !== ROLES.SUPER_ADMIN) {
@@ -59,7 +59,14 @@ export function createEntryRouter(cfg) {
     }
     if (jamaat) filter.jamaat = jamaat;
     // An activity filter also matches new activities done in place of it.
-    if (activity) filter.$or = [{ activity }, { inPlaceOf: activity }];
+    const and = [];
+    if (activity) and.push({ $or: [{ activity }, { inPlaceOf: activity }] });
+    if (category) {
+      if (!CATEGORIES.includes(category)) return null;
+      const ids = await Activity.find({ category }).distinct('_id');
+      and.push(categoryFilter(category, ids));
+    }
+    if (and.length) filter.$and = and;
 
     const fromDate = from ? parseDateOnly(from) : null;
     const toDate = to ? parseDateOnly(to) : null;
@@ -86,12 +93,13 @@ export function createEntryRouter(cfg) {
       if (!isValidId(body.activity)) return { error: 'Select an Activity' };
       const activity = await findListedActivity(body.activity);
       if (!activity) return { error: 'Activity not found or not available here' };
-      return { fields: { activity: activity._id, customActivity: '', inPlaceOf: null, activityKey: `a:${activity._id}` } };
+      return { fields: { activity: activity._id, customActivity: '', customCategory: '', inPlaceOf: null, activityKey: `a:${activity._id}` } };
     }
 
     if (custom.length > 100) return { error: 'New activity name is too long (max 100 characters)' };
     const listed = await Activity.findOne({ name: custom }).collation({ locale: 'en', strength: 2 }).lean();
     if (listed) return { error: `"${listed.name}" is already in the activity list. Select it from the dropdown instead.` };
+    if (!CATEGORIES.includes(body.customCategory)) return { error: 'Select a category for the new activity' };
 
     let inPlaceOf = null;
     if (body.inPlaceOf) {
@@ -102,6 +110,7 @@ export function createEntryRouter(cfg) {
       fields: {
         activity: null,
         customActivity: custom,
+        customCategory: body.customCategory,
         inPlaceOf: inPlaceOf?._id ?? null,
         activityKey: inPlaceOf ? `a:${inPlaceOf._id}` : `c:${custom.toLowerCase()}`,
       },
@@ -173,7 +182,7 @@ export function createEntryRouter(cfg) {
   // ---------- List ----------
   // ?deleted=true (Super Admin only) lists soft-deleted entries instead.
   router.get('/', async (req, res) => {
-    const filter = buildFilter(req);
+    const filter = await buildFilter(req);
     if (!filter) return res.status(400).json({ message: 'Invalid filters' });
     if (req.query.deleted === 'true') {
       if (req.user.role !== ROLES.SUPER_ADMIN) return res.status(403).json({ message: 'Forbidden' });
@@ -194,7 +203,7 @@ export function createEntryRouter(cfg) {
 
   // ---------- Excel export: one sheet per Jamiat, every Jamaat listed ----------
   router.get('/export', adminOnly, async (req, res) => {
-    const filter = buildFilter(req);
+    const filter = await buildFilter(req);
     if (!filter) return res.status(400).json({ message: 'Invalid filters' });
 
     const items = await cfg.Model.find(filter).sort({ [cfg.dateField]: 1, createdAt: 1 }).populate(POPULATE).lean();
@@ -226,8 +235,9 @@ export function createEntryRouter(cfg) {
 
     const wb = new ExcelJS.Workbook();
     const usedNames = new Set();
-    const activityCol = cfg.columns.findIndex((c) => c.key === 'activity') + 1;
-    const colLetter = String.fromCharCode(64 + activityCol);
+    const colLetter = (key) => String.fromCharCode(65 + cfg.columns.findIndex((c) => c.key === key));
+    const actCol = colLetter('activity');
+    const catCol = colLetter('category');
 
     for (const jamiat of jamiats) {
       let name = sheetSafe(jamiat.name);
@@ -242,13 +252,25 @@ export function createEntryRouter(cfg) {
       for (const jm of jamaats.filter((j) => String(j.jamiat) === String(jamiat._id))) {
         const entries = byJamaat.get(String(jm._id)) || [];
         if (entries.length === 0) ws.addRow({ jamaat: jm.name });
-        else entries.forEach((e) => ws.addRow({ ...cfg.toRow(e), jamaat: jm.name }));
+        else entries.forEach((e) => ws.addRow({ ...cfg.toRow(e), category: entryCategory(e), jamaat: jm.name }));
       }
       ws.eachRow((row) => (row.alignment = { vertical: 'top', wrapText: true }));
+      // Excel filter arrows on the header (e.g. filter Category = Tibb).
+      ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(ws.rowCount, 1), column: cfg.columns.length } };
+      const lastRow = Math.max(ws.rowCount, 1) + 200;
+
+      ws.dataValidations.add(`${catCol}2:${catCol}${lastRow}`, {
+        type: 'list',
+        allowBlank: true,
+        formulae: [`"${CATEGORIES.join(',')}"`],
+        showErrorMessage: true,
+        errorTitle: 'Category',
+        error: `Choose ${CATEGORIES.join(', ')}`,
+      });
 
       if (activityNames.length) {
         // Dropdown on the Activity column (with room to add rows). Other values are allowed after a warning.
-        ws.dataValidations.add(`${colLetter}2:${colLetter}${Math.max(ws.rowCount, 1) + 200}`, {
+        ws.dataValidations.add(`${actCol}2:${actCol}${lastRow}`, {
           type: 'list',
           allowBlank: true,
           formulae: [`Lists!$A$1:$A$${activityNames.length}`],

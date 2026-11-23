@@ -1,5 +1,6 @@
 import Report from '../models/Report.js';
 import { createEntryRouter, readExtras } from './entryRouter.js';
+import { entryCategory } from '../models/entryActivity.js';
 import { parseDateOnly, todayString, formatDate } from '../utils/dates.js';
 
 function readPayload(body) {
@@ -36,6 +37,7 @@ export default createEntryRouter({
     Jamiat: d.jamiat?.name || '',
     Jamaat: d.jamaat?.name || '',
     Activity: d.customActivity || d.activity?.name || '',
+    Category: entryCategory(d),
     'New Activity': d.customActivity ? 'Yes' : 'No',
     'In Place Of': d.inPlaceOf?.name || '',
     'Conducted Date': formatDate(d.conductedDate),
@@ -46,6 +48,7 @@ export default createEntryRouter({
   columns: [
     { header: 'Jamaat', key: 'jamaat', width: 28 },
     { header: 'Activity', key: 'activity', width: 24 },
+    { header: 'Category', key: 'category', width: 12 },
     { header: 'New Activity?', key: 'isNew', width: 13 },
     { header: 'In Place Of', key: 'inPlaceOf', width: 22 },
     { header: 'Conducted Date', key: 'date', width: 15 },

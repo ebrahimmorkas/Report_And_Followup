@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import Activity from '../models/Activity.js';
+import Activity, { CATEGORIES } from '../models/Activity.js';
 import { requireRole } from '../middleware/auth.js';
 import { ROLES } from '../models/User.js';
 import { isValidId } from '../utils/http.js';
@@ -14,9 +14,10 @@ router.get('/', async (req, res) => {
   const filter = {};
   if (req.query.type === 'report') filter.showInReport = true;
   if (req.query.type === 'followup') filter.showInFollowUp = true;
+  if (CATEGORIES.includes(req.query.category)) filter.category = req.query.category;
   if (req.user.role !== ROLES.SUPER_ADMIN || req.query.active === 'true') filter.isActive = true;
   const activities = await Activity.find(filter).sort({ name: 1 }).lean();
-  res.json({ activities });
+  res.json({ activities, categories: CATEGORIES });
 });
 
 function readBody(body = {}) {
@@ -24,14 +25,15 @@ function readBody(body = {}) {
   const showInReport = Boolean(body.showInReport);
   const showInFollowUp = Boolean(body.showInFollowUp);
   if (!name) return { error: 'Activity name is required' };
+  if (!CATEGORIES.includes(body.category)) return { error: `Select a category (${CATEGORIES.join(', ')})` };
   if (!showInReport && !showInFollowUp) return { error: 'Select Report, Follow-up, or both' };
-  const data = { name, showInReport, showInFollowUp };
+  const data = { name, category: body.category, showInReport, showInFollowUp };
   if (typeof body.isActive === 'boolean') data.isActive = body.isActive;
   return { data };
 }
 
 const yesNo = (v) => (v ? 'Yes' : 'No');
-const snap = (a) => ({ Name: a.name, Report: yesNo(a.showInReport), 'Follow-up': yesNo(a.showInFollowUp), Active: yesNo(a.isActive) });
+const snap = (a) => ({ Name: a.name, Category: a.category || '', Report: yesNo(a.showInReport), 'Follow-up': yesNo(a.showInFollowUp), Active: yesNo(a.isActive) });
 
 function duplicate(res, e) {
   if (e.code === 11000) return res.status(409).json({ message: 'An activity with this name already exists' });

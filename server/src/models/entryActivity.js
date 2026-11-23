@@ -18,6 +18,8 @@ export const activityFields = {
   activity: { type: ObjectId, ref: 'Activity', default: null, index: true },
   customActivity: { type: String, trim: true, default: '' },
   inPlaceOf: { type: ObjectId, ref: 'Activity', default: null, index: true },
+  // Category picked by the JC for a new activity (listed activities carry their own category).
+  customCategory: { type: String, default: '' },
   activityKey: { type: String },
   // Soft delete: entries are never removed from the database.
   isDeleted: { type: Boolean, default: false, index: true },
@@ -47,6 +49,30 @@ export function addDuplicateIndex(schema) {
 export function activityLabel(doc) {
   if (!doc.customActivity) return doc.activity?.name || '';
   return doc.inPlaceOf?.name ? `${doc.customActivity} (in place of ${doc.inPlaceOf.name})` : doc.customActivity;
+}
+
+/**
+ * Category of an entry (needs activity / inPlaceOf populated with `category`).
+ * Older new-activity entries without a picked category fall back to their "in place of" activity.
+ */
+export function entryCategory(doc) {
+  if (!doc.customActivity) return doc.activity?.category || '';
+  return doc.customCategory || doc.inPlaceOf?.category || '';
+}
+
+/**
+ * Mongo filter for entries of one category, matching entryCategory().
+ * @param {string} category
+ * @param {import('mongoose').Types.ObjectId[]} activityIds  listed activities in that category
+ */
+export function categoryFilter(category, activityIds) {
+  return {
+    $or: [
+      { activity: { $in: activityIds } },
+      { customActivity: { $nin: ['', null] }, customCategory: category },
+      { customActivity: { $nin: ['', null] }, customCategory: { $in: ['', null] }, inPlaceOf: { $in: activityIds } },
+    ],
+  };
 }
 
 /**

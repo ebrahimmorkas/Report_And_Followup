@@ -6,8 +6,9 @@ import Alert from '../components/Alert';
 import Modal from '../components/Modal';
 import EntryForm from './EntryForm';
 import { KINDS } from './entryKinds';
+import { CATEGORIES, CATEGORY_STYLE, entryCategory, groupByCategory } from '../categories';
 
-const emptyFilters = { jamiat: '', jamaat: '', activity: '', from: '', to: '' };
+const emptyFilters = { jamiat: '', jamaat: '', category: '', activity: '', from: '', to: '' };
 
 export default function EntriesPage({ kind }) {
   const cfg = KINDS[kind];
@@ -35,6 +36,7 @@ export default function EntriesPage({ kind }) {
 
   const jamaats = useJamaats(filters.jamiat);
   const activities = useActivities(cfg.activityType);
+  const activityGroups = groupByCategory(activities.filter((a) => !filters.category || a.category === filters.category));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -55,7 +57,7 @@ export default function EntriesPage({ kind }) {
   const setFilter = (key) => (e) => {
     const value = e.target.value;
     setPage(1);
-    setFilters((f) => ({ ...f, [key]: value, ...(key === 'jamiat' ? { jamaat: '' } : {}) }));
+    setFilters((f) => ({ ...f, [key]: value, ...(key === 'jamiat' ? { jamaat: '' } : {}), ...(key === 'category' ? { activity: '' } : {}) }));
   };
 
   const onRestore = async (item) => {
@@ -128,7 +130,7 @@ export default function EntriesPage({ kind }) {
         </div>
       </div>
 
-      <div className="card mb-4 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-6">
+      <div className="card mb-4 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-7">
         <select className="input" value={filters.jamiat} onChange={setFilter('jamiat')} disabled={!!singleJamiat}>
           {!singleJamiat && <option value="">All Jamiats</option>}
           {jamiats.map((j) => (
@@ -141,10 +143,20 @@ export default function EntriesPage({ kind }) {
             <option key={j._id} value={j._id}>{j.name}</option>
           ))}
         </select>
+        <select className="input" value={filters.category} onChange={setFilter('category')}>
+          <option value="">All Categories</option>
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
         <select className="input" value={filters.activity} onChange={setFilter('activity')}>
           <option value="">All Activities</option>
-          {activities.map((a) => (
-            <option key={a._id} value={a._id}>{a.name}</option>
+          {activityGroups.map((g) => (
+            <optgroup key={g.category} label={g.category}>
+              {g.items.map((a) => (
+                <option key={a._id} value={a._id}>{a.name}</option>
+              ))}
+            </optgroup>
           ))}
         </select>
         <input type="date" className="input" title="From date" value={filters.from} onChange={setFilter('from')} />
@@ -199,6 +211,11 @@ export default function EntriesPage({ kind }) {
                       </>
                     ) : (
                       item.activity?.name
+                    )}
+                    {entryCategory(item) && (
+                      <div className="mt-1">
+                        <span className={`badge ${CATEGORY_STYLE[entryCategory(item)] || ''}`}>{entryCategory(item)}</span>
+                      </div>
                     )}
                   </td>
                   <td className="td whitespace-nowrap">{fmtDate(item[cfg.dateField])}</td>

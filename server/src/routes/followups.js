@@ -1,5 +1,6 @@
 import FollowUp from '../models/FollowUp.js';
 import { createEntryRouter, readExtras } from './entryRouter.js';
+import { entryCategory } from '../models/entryActivity.js';
 import { parseDateOnly, formatDate } from '../utils/dates.js';
 
 function readText(body, key, label) {
@@ -38,22 +39,24 @@ export default createEntryRouter({
     Jamiat: d.jamiat?.name || '',
     Jamaat: d.jamaat?.name || '',
     Activity: d.customActivity || d.activity?.name || '',
+    Category: entryCategory(d),
     'New Activity': d.customActivity ? 'Yes' : 'No',
     'In Place Of': d.inPlaceOf?.name || '',
     'Planned Date': formatDate(d.plannedDate),
-    Issues: d.issues || '',
     Description: d.description || '',
+    Issues: d.issues || '',
     'Extra Activities': d.extraActivities.map((e) => e.name).join(', '),
   }),
   exportName: 'Follow_Up',
   columns: [
     { header: 'Jamaat', key: 'jamaat', width: 28 },
     { header: 'Activity', key: 'activity', width: 24 },
+    { header: 'Category', key: 'category', width: 12 },
     { header: 'New Activity?', key: 'isNew', width: 13 },
     { header: 'In Place Of', key: 'inPlaceOf', width: 22 },
     { header: 'Planned Date', key: 'date', width: 15 },
-    { header: 'Issues', key: 'issues', width: 40 },
     { header: 'Description', key: 'description', width: 40 },
+    { header: 'Issues', key: 'issues', width: 40 },
     { header: 'Extra Activities', key: 'extras', width: 40 },
     { header: 'Entered By', key: 'createdBy', width: 22 },
     { header: 'Entered On', key: 'createdAt', width: 15 },

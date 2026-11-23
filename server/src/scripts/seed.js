@@ -25,8 +25,8 @@ const SKIP_SHEETS = new Set(['all missing', 'structure not formed', 'structure f
 const FIRST_DATA_ROW = 3;
 
 const DEFAULT_ACTIVITIES = [
-  { name: 'World Diabetes Day', showInReport: true, showInFollowUp: true },
-  { name: 'ITNC', showInReport: true, showInFollowUp: true },
+  { name: 'World Diabetes Day', category: 'Tibb', showInReport: true, showInFollowUp: true },
+  { name: 'ITNC', category: 'Tibb', showInReport: true, showInFollowUp: true },
 ];
 
 const clean = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().toUpperCase();

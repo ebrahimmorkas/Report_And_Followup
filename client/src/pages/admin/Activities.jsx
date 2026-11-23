@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import Alert from '../../components/Alert';
 import Modal from '../../components/Modal';
+import { CATEGORIES, CATEGORY_STYLE } from '../../categories';
 
 function ActivityForm({ initial, onSaved, onCancel }) {
   const [form, setForm] = useState({
     name: initial?.name || '',
+    category: initial?.category || '',
     showInReport: initial?.showInReport ?? false,
     showInFollowUp: initial?.showInFollowUp ?? false,
     isActive: initial?.isActive ?? true,
@@ -17,6 +19,7 @@ function ActivityForm({ initial, onSaved, onCancel }) {
   const onSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    if (!form.category) return setError('Select a category');
     if (!form.showInReport && !form.showInFollowUp) return setError('Select Report, Follow-up, or both');
     setBusy(true);
     try {
@@ -35,6 +38,15 @@ function ActivityForm({ initial, onSaved, onCancel }) {
       <div>
         <label className="label">Activity name *</label>
         <input className="input" value={form.name} onChange={set('name')} required />
+      </div>
+      <div>
+        <label className="label">Category *</label>
+        <select className="input" value={form.category} onChange={set('category')} required>
+          <option value="">Select category</option>
+          {CATEGORIES.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
       </div>
       <div>
         <div className="label">Show in *</div>
@@ -64,6 +76,11 @@ export default function Activities() {
   const [activities, setActivities] = useState([]);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null);
+  const [category, setCategory] = useState('');
+  const order = (a) => (CATEGORIES.includes(a.category) ? CATEGORIES.indexOf(a.category) : 99);
+  const shown = activities
+    .filter((a) => !category || a.category === category)
+    .sort((a, b) => order(a) - order(b) || a.name.localeCompare(b.name));
 
   const load = () =>
     api
@@ -80,9 +97,17 @@ export default function Activities() {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Activities</h1>
-          <p className="text-sm text-slate-500">Choose where each activity appears: Report, Follow-up, or both</p>
+          <p className="text-sm text-slate-500">Each activity has a category (Tibb, Riyadah, Nazafat) and appears in Report, Follow-up, or both</p>
         </div>
-        <button className="btn-primary" onClick={() => setEditing('new')}>+ Add Activity</button>
+        <div className="flex gap-2">
+          <select className="input w-44" value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="">All categories</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <button className="btn-primary whitespace-nowrap" onClick={() => setEditing('new')}>+ Add Activity</button>
+        </div>
       </div>
       <Alert>{error}</Alert>
       <div className="card overflow-x-auto">
@@ -90,6 +115,7 @@ export default function Activities() {
           <thead className="bg-slate-50">
             <tr>
               <th className="th">Activity</th>
+              <th className="th">Category</th>
               <th className="th text-center">Report</th>
               <th className="th text-center">Follow-up</th>
               <th className="th">Status</th>
@@ -97,9 +123,16 @@ export default function Activities() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {activities.map((a) => (
+            {shown.map((a) => (
               <tr key={a._id} className="hover:bg-slate-50">
                 <td className="td font-medium">{a.name}</td>
+                <td className="td">
+                  {a.category ? (
+                    <span className={`badge ${CATEGORY_STYLE[a.category]}`}>{a.category}</span>
+                  ) : (
+                    <span className="text-xs text-amber-600">Not set</span>
+                  )}
+                </td>
                 <td className="td text-center"><Tick on={a.showInReport} /></td>
                 <td className="td text-center"><Tick on={a.showInFollowUp} /></td>
                 <td className="td">
@@ -112,8 +145,8 @@ export default function Activities() {
                 </td>
               </tr>
             ))}
-            {activities.length === 0 && (
-              <tr><td className="td py-8 text-center text-slate-400" colSpan={5}>No activities</td></tr>
+            {shown.length === 0 && (
+              <tr><td className="td py-8 text-center text-slate-400" colSpan={6}>No activities</td></tr>
             )}
           </tbody>
         </table>
