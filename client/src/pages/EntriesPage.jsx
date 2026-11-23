@@ -25,6 +25,14 @@ export default function EntriesPage({ kind }) {
   const hasActions = !isAdmin || showDeleted;
   const colCount = 6 + cfg.textFields.length + (hasActions ? 1 : 0);
   const jamiats = useJamiats();
+  const singleJamiat = jamiats.length === 1 ? jamiats[0] : null;
+
+  useEffect(() => {
+    if (singleJamiat && filters.jamiat !== singleJamiat._id) {
+      setFilters((f) => ({ ...f, jamiat: singleJamiat._id }));
+    }
+  }, [singleJamiat, filters.jamiat]);
+
   const jamaats = useJamaats(filters.jamiat);
   const activities = useActivities(cfg.activityType);
 
@@ -121,8 +129,8 @@ export default function EntriesPage({ kind }) {
       </div>
 
       <div className="card mb-4 grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-6">
-        <select className="input" value={filters.jamiat} onChange={setFilter('jamiat')}>
-          <option value="">All Jamiats</option>
+        <select className="input" value={filters.jamiat} onChange={setFilter('jamiat')} disabled={!!singleJamiat}>
+          {!singleJamiat && <option value="">All Jamiats</option>}
           {jamiats.map((j) => (
             <option key={j._id} value={j._id}>{j.name}</option>
           ))}
@@ -144,7 +152,7 @@ export default function EntriesPage({ kind }) {
         <button
           className="btn-secondary"
           onClick={() => {
-            setFilters(emptyFilters);
+            setFilters({ ...emptyFilters, jamiat: singleJamiat?._id || '' });
             setPage(1);
           }}
         >
