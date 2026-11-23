@@ -10,6 +10,27 @@ import { CATEGORIES, CATEGORY_STYLE, entryCategory, groupByCategory } from '../c
 
 const emptyFilters = { jamiat: '', jamaat: '', category: '', activity: '', from: '', to: '' };
 
+function SortHeader({ label, sortKey, sort, onSort }) {
+  const active = sort.key === sortKey;
+  return (
+    <th className="th" aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        title={`Sort by ${label}`}
+        className={`group inline-flex items-center gap-1 [text-transform:inherit] hover:text-indigo-600 ${
+          active ? 'text-indigo-600' : ''
+        }`}
+      >
+        {label}
+        <span className={active ? '' : 'text-slate-300 group-hover:text-indigo-400'}>
+          {active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 export default function EntriesPage({ kind }) {
   const cfg = KINDS[kind];
   const { isAdmin } = useAuth();
@@ -22,6 +43,7 @@ export default function EntriesPage({ kind }) {
   const [editing, setEditing] = useState(null); // null | 'new' | item
   const [exporting, setExporting] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false); // Super Admin: view soft-deleted entries
+  const [sort, setSort] = useState({ key: '', dir: 'asc' });
 
   const hasActions = !isAdmin || showDeleted;
   const colCount = 6 + cfg.textFields.length + (hasActions ? 1 : 0);
@@ -42,13 +64,13 @@ export default function EntriesPage({ kind }) {
     setLoading(true);
     setError('');
     try {
-      setData(await api.get(`${cfg.endpoint}${qs({ ...filters, page, limit: 20, deleted: showDeleted ? 'true' : '' })}`));
+      setData(await api.get(`${cfg.endpoint}${qs({ ...filters, page, limit: 20, deleted: showDeleted ? 'true' : '', sortBy: sort.key, sortDir: sort.dir })}`));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [cfg.endpoint, filters, page, showDeleted]);
+  }, [cfg.endpoint, filters, page, showDeleted, sort]);
 
   useEffect(() => {
     load();
@@ -58,6 +80,15 @@ export default function EntriesPage({ kind }) {
     const value = e.target.value;
     setPage(1);
     setFilters((f) => ({ ...f, [key]: value, ...(key === 'jamiat' ? { jamaat: '' } : {}), ...(key === 'category' ? { activity: '' } : {}) }));
+  };
+
+  const toggleSort = (key) => {
+    setPage(1);
+    setSort((s) => {
+      if (s.key !== key) return { key, dir: 'asc' };
+      if (s.dir === 'asc') return { key, dir: 'desc' };
+      return { key: '', dir: 'asc' };
+    });
   };
 
   const onRestore = async (item) => {
@@ -165,6 +196,7 @@ export default function EntriesPage({ kind }) {
           className="btn-secondary"
           onClick={() => {
             setFilters({ ...emptyFilters, jamiat: singleJamiat?._id || '' });
+            setSort({key: '', dir: 'asc'});
             setPage(1);
           }}
         >
@@ -178,10 +210,10 @@ export default function EntriesPage({ kind }) {
         <table className="min-w-full divide-y divide-slate-200">
           <thead className="bg-slate-50">
             <tr>
-              <th className="th">Jamiat</th>
-              <th className="th">Jamaat</th>
+              <SortHeader label="Jamiat" sortKey="jamiat" sort={sort} onSort={toggleSort} />
+              <SortHeader label="Jamaat" sortKey="jamaat" sort={sort} onSort={toggleSort} />
               <th className="th">Activity</th>
-              <th className="th">{kind === 'report' ? 'Conducted' : 'Planned'}</th>
+              <SortHeader label={kind === 'report' ? 'Conducted' : 'Planned'} sortKey="date" sort={sort} onSort={toggleSort} />
               <th className="th">Extra activities</th>
               {cfg.textFields.map((f) => (
                 <th key={f.key} className="th">{f.label}</th>

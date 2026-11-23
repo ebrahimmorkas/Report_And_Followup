@@ -20,6 +20,11 @@ const POPULATE = [
   { path: 'deletedBy', select: 'name mobile' },
 ];
 
+const SORTS = {
+  jamiat: (dir) => ({ jamiatName: dir, jamaatName: 1 }),
+  jamaat: (dir) => ({ jamaatName: dir }),
+};
+
 const sheetSafe = (name) => name.replace(/[\\/?*[\]:]/g, '-').slice(0, 31) || 'Sheet';
 
 /**
@@ -192,12 +197,53 @@ export function createEntryRouter(cfg) {
 
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
     const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
-    const sort = filter.isDeleted === true ? { deletedAt: -1 } : { [cfg.dateField]: -1, createdAt: -1 };
 
-    const [items, total] = await Promise.all([
-      cfg.Model.find(filter).sort(sort).skip((page - 1) * limit).limit(limit).populate(POPULATE).lean(),
-      cfg.Model.countDocuments(filter),
-    ]);
+    const sortBy = req.query.sortBy;
+    const dir = req.query.sortDir === 'desc' ? -1 : 1;
+
+    // Plain (non-aggregation) sort: default order, or the date column.
+    const sort =
+      filter.isDeleted === true
+        ? { deletedAt: -1 }
+        : sortBy === 'date'
+          ? { [cfg.dateField]: dir, createdAt: -1, _id: 1 }
+          : { [cfg.dateField]: -1, createdAt: -1 };
+
+    const sortBuilder = SORTS[sortBy]; // only set for 'jamiat' / 'jamaat'
+    const totalPromise = cfg.Model.countDocuments(filter);
+    let items;
+
+    if (sortBuilder && filter.isDeleted !== true) {
+      // Sort by the referenced name: aggregate for the ordered ids, then populate as usual.
+      const match = cfg.Model.find(filter).cast(cfg.Model);
+
+      const ids = await cfg.Model.aggregate([
+        { $match: match },
+        { $lookup: { from: Jamiat.collection.name, localField: 'jamiat', foreignField: '_id', as: 'j' } },
+        { $lookup: { from: Jamaat.collection.name, localField: 'jamaat', foreignField: '_id', as: 'm' } },
+        {
+          $addFields: {
+            jamiatName: { $arrayElemAt: ['$j.name', 0] },
+            jamaatName: { $arrayElemAt: ['$m.name', 0] },
+          },
+        },
+        { $sort: { ...sortBuilder(dir), [cfg.dateField]: -1, createdAt: -1, _id: 1 } },
+        { $skip: (page - 1) * limit },
+        { $limit: limit },
+        { $project: { _id: 1 } },
+      ]).collation({ locale: 'en', strength: 2 });
+
+      const docs = await cfg.Model.find({ _id: { $in: ids.map((i) => i._id) } })
+        .populate(POPULATE)
+        .lean();
+      const byId = new Map(docs.map((d) => [String(d._id), d]));
+      items = ids.map((i) => byId.get(String(i._id))).filter(Boolean);
+    } else {
+      // Default order, or sorting by the date column (handled in `sort` above).
+      items = await cfg.Model.find(filter).sort(sort).skip((page - 1) * limit).limit(limit).populate(POPULATE).lean();
+    }
+
+    const total = await totalPromise;
     res.json({ items, total, page, limit, pages: Math.max(Math.ceil(total / limit), 1) });
   });
 
