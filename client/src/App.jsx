@@ -7,6 +7,7 @@ import ChangePassword from './pages/ChangePassword';
 import Users from './pages/admin/Users';
 import Activities from './pages/admin/Activities';
 import Masters from './pages/admin/Masters';
+import AuditLog from './pages/admin/AuditLog';
 
 function RequireAuth({ children, adminOnly }) {
   const { user, loading, isAdmin } = useAuth();
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="admin/users" element={<RequireAuth adminOnly><Users /></RequireAuth>} />
         <Route path="admin/activities" element={<RequireAuth adminOnly><Activities /></RequireAuth>} />
         <Route path="admin/masters" element={<RequireAuth adminOnly><Masters /></RequireAuth>} />
+        <Route path="admin/audit" element={<RequireAuth adminOnly><AuditLog /></RequireAuth>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -4,6 +4,7 @@ import Jamaat from '../models/Jamaat.js';
 import { requireRole } from '../middleware/auth.js';
 import { ROLES } from '../models/User.js';
 import { isValidId } from '../utils/http.js';
+import { audit } from '../utils/audit.js';
 
 const router = Router();
 const adminOnly = requireRole(ROLES.SUPER_ADMIN);
@@ -13,6 +14,12 @@ const isAdmin = (req) => req.user.role === ROLES.SUPER_ADMIN;
 const scopeFilter = (req) => (isAdmin(req) ? {} : { _id: { $in: req.user.jamiats } });
 
 const readName = (body) => (typeof body?.name === 'string' ? body.name.trim().toUpperCase() : '');
+
+const jamiatSnap = (j) => ({ Name: j.name, Active: j.isActive ? 'Yes' : 'No' });
+async function jamaatSnap(j) {
+  const jamiat = await Jamiat.findById(j.jamiat).select('name').lean();
+  return { Name: j.name, Jamiat: jamiat?.name || '', Active: j.isActive ? 'Yes' : 'No' };
+}
 
 function handleDuplicate(res, e, message) {
   if (e.code === 11000) return res.status(409).json({ message });
@@ -38,6 +45,7 @@ router.post('/jamiats', adminOnly, async (req, res) => {
   if (!name) return res.status(400).json({ message: 'Jamiat name is required' });
   try {
     const jamiat = await Jamiat.create({ name });
+    await audit(req, { action: 'CREATE', entity: 'Jamiat', entityId: jamiat._id, summary: `Added Jamiat ${jamiat.name}`, after: jamiatSnap(jamiat) });
     res.status(201).json({ jamiat });
   } catch (e) {
     handleDuplicate(res, e, 'This Jamiat already exists');
@@ -53,8 +61,17 @@ router.put('/jamiats/:id', adminOnly, async (req, res) => {
   }
   if (typeof req.body?.isActive === 'boolean') update.isActive = req.body.isActive;
   try {
+    const before = await Jamiat.findById(req.params.id).lean();
+    if (!before) return res.status(404).json({ message: 'Jamiat not found' });
     const jamiat = await Jamiat.findByIdAndUpdate(req.params.id, update, { new: true });
-    if (!jamiat) return res.status(404).json({ message: 'Jamiat not found' });
+    await audit(req, {
+      action: 'UPDATE',
+      entity: 'Jamiat',
+      entityId: jamiat._id,
+      summary: `Edited Jamiat ${jamiat.name}`,
+      before: jamiatSnap(before),
+      after: jamiatSnap(jamiat),
+    });
     res.json({ jamiat });
   } catch (e) {
     handleDuplicate(res, e, 'This Jamiat already exists');
@@ -84,6 +101,8 @@ router.post('/jamaats', adminOnly, async (req, res) => {
     return res.status(400).json({ message: 'Select a valid Jamiat' });
   try {
     const jamaat = await Jamaat.create({ name, jamiat });
+    const snap = await jamaatSnap(jamaat);
+    await audit(req, { action: 'CREATE', entity: 'Jamaat', entityId: jamaat._id, summary: `Added Jamaat ${jamaat.name} in ${snap.Jamiat}`, after: snap });
     res.status(201).json({ jamaat });
   } catch (e) {
     handleDuplicate(res, e, 'This Jamaat already exists in the Jamiat');
@@ -99,8 +118,18 @@ router.put('/jamaats/:id', adminOnly, async (req, res) => {
   }
   if (typeof req.body?.isActive === 'boolean') update.isActive = req.body.isActive;
   try {
+    const before = await Jamaat.findById(req.params.id).lean();
+    if (!before) return res.status(404).json({ message: 'Jamaat not found' });
     const jamaat = await Jamaat.findByIdAndUpdate(req.params.id, update, { new: true });
-    if (!jamaat) return res.status(404).json({ message: 'Jamaat not found' });
+    const after = await jamaatSnap(jamaat);
+    await audit(req, {
+      action: 'UPDATE',
+      entity: 'Jamaat',
+      entityId: jamaat._id,
+      summary: `Edited Jamaat ${jamaat.name} in ${after.Jamiat}`,
+      before: await jamaatSnap(before),
+      after,
+    });
     res.json({ jamaat });
   } catch (e) {
     handleDuplicate(res, e, 'This Jamaat already exists in the Jamiat');

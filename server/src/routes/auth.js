@@ -3,7 +3,9 @@ import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import User from '../models/User.js';
 import { normalizeMobile } from '../utils/mobile.js';
-import { requireAuth, setAuthCookie, clearAuthCookie } from '../middleware/auth.js';
+import jwt from 'jsonwebtoken';
+import { requireAuth, setAuthCookie, clearAuthCookie, COOKIE_NAME } from '../middleware/auth.js';
+import { audit } from '../utils/audit.js';
 
 const router = Router();
 
@@ -35,15 +37,34 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   const user = await User.findOne({ mobile }).select('+password');
   const ok = user && (await bcrypt.compare(password, user.password));
-  if (!ok) return res.status(401).json({ message: 'Invalid mobile number or password' });
-  if (!user.isActive) return res.status(403).json({ message: 'Your account is inactive' });
+  if (!ok || !user.isActive) {
+    const reason = !user ? 'unknown mobile' : !ok ? 'wrong password' : 'inactive account';
+    await audit(req, {
+      action: 'LOGIN_FAILED',
+      entity: 'Auth',
+      entityId: user?._id ?? null,
+      summary: `Failed login for ${mobile} (${reason})`,
+      actor: user ? { _id: user._id, name: user.name, mobile: user.mobile } : { _id: null, name: '', mobile },
+    });
+    if (!ok) return res.status(401).json({ message: 'Invalid mobile number or password' });
+    return res.status(403).json({ message: 'Your account is inactive' });
+  }
 
   setAuthCookie(res, user);
+  await audit(req, { action: 'LOGIN', entity: 'Auth', entityId: user._id, summary: `${user.name} logged in`, actor: user });
   const populated = await User.findById(user._id).populate('jamiats', 'name isActive').lean();
   res.json({ user: publicUser(populated) });
 });
 
-router.post('/logout', (req, res) => {
+router.post('/logout', async (req, res) => {
+  // Record who logged out, if the session is still valid.
+  try {
+    const payload = jwt.verify(req.cookies?.[COOKIE_NAME] || '', process.env.JWT_SECRET);
+    const user = await User.findById(payload.sub).lean();
+    if (user) await audit(req, { action: 'LOGOUT', entity: 'Auth', entityId: user._id, summary: `${user.name} logged out`, actor: user });
+  } catch {
+    // no valid session: nothing to record
+  }
   clearAuthCookie(res);
   res.json({ message: 'Logged out' });
 });
@@ -70,6 +91,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
   await user.save();
   // Re-issue the cookie so the current session stays logged in.
   setAuthCookie(res, user);
+  await audit(req, { action: 'PASSWORD_CHANGE', entity: 'Auth', entityId: user._id, summary: `${user.name} changed their password` });
   res.json({ message: 'Password changed successfully' });
 });
 

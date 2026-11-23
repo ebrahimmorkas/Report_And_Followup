@@ -17,18 +17,24 @@ import reportRoutes from './routes/reports.js';
 import followUpRoutes from './routes/followups.js';
 import Report from './models/Report.js';
 import FollowUp from './models/FollowUp.js';
-import { backfillActivityKeys } from './models/entryActivity.js';
+import AuditLog from './models/AuditLog.js';
+import auditRoutes from './routes/audit.js';
+import { backfillEntries } from './models/entryActivity.js';
 
-/** Builds indexes, then gives older entries their duplicate-rule key. */
+/**
+ * Brings indexes in line with the current schema (only index definitions change, never data),
+ * then prepares entries saved by older versions.
+ */
 async function prepareEntries() {
   for (const Model of [Report, FollowUp]) {
     try {
-      await Model.init();
-      await backfillActivityKeys(Model);
+      await Model.syncIndexes();
+      await backfillEntries(Model);
     } catch (err) {
-      console.warn(`! Could not prepare ${Model.modelName} duplicate rule:`, err.message);
+      console.warn(`! Could not prepare ${Model.modelName}:`, err.message);
     }
   }
+  await AuditLog.init().catch((err) => console.warn('! Audit log indexes:', err.message));
 }
 
 if (!process.env.JWT_SECRET) {
@@ -52,6 +58,7 @@ app.use('/api/activities', requireAuth, activityRoutes);
 app.use('/api/masters', requireAuth, masterRoutes);
 app.use('/api/reports', requireAuth, reportRoutes);
 app.use('/api/followups', requireAuth, followUpRoutes);
+app.use('/api/audit', requireAuth, requireRole(ROLES.SUPER_ADMIN), auditRoutes);
 app.use('/api', (req, res) => res.status(404).json({ message: 'Not found' }));
 
 // In production, serve the built React app.

@@ -24,15 +24,26 @@ function readPayload(body) {
   return { data: { conductedDate, remarks, extraActivities: extras } };
 }
 
+const extrasText = (d, sep) => d.extraActivities.map((e) => `${e.name} (${formatDate(e.date)})`).join(sep);
+
 export default createEntryRouter({
   Model: Report,
   title: 'Report',
   activityFlag: 'showInReport',
   dateField: 'conductedDate',
   readPayload,
-  sheetName: 'Report',
+  snapshot: (d) => ({
+    Jamiat: d.jamiat?.name || '',
+    Jamaat: d.jamaat?.name || '',
+    Activity: d.customActivity || d.activity?.name || '',
+    'New Activity': d.customActivity ? 'Yes' : 'No',
+    'In Place Of': d.inPlaceOf?.name || '',
+    'Conducted Date': formatDate(d.conductedDate),
+    Remarks: d.remarks || '',
+    'Extra Activities': extrasText(d, ', '),
+  }),
+  exportName: 'Report',
   columns: [
-    { header: 'Jamiat', key: 'jamiat', width: 18 },
     { header: 'Jamaat', key: 'jamaat', width: 28 },
     { header: 'Activity', key: 'activity', width: 24 },
     { header: 'New Activity?', key: 'isNew', width: 13 },
@@ -44,13 +55,12 @@ export default createEntryRouter({
     { header: 'Entered On', key: 'createdAt', width: 15 },
   ],
   toRow: (d) => ({
-    jamiat: d.jamiat?.name,
     jamaat: d.jamaat?.name,
     activity: d.customActivity || d.activity?.name,
     isNew: d.customActivity ? 'Yes' : '',
     inPlaceOf: d.inPlaceOf?.name || '',
     date: formatDate(d.conductedDate),
-    extras: d.extraActivities.map((e) => `${e.name} (${formatDate(e.date)})`).join('\n'),
+    extras: extrasText(d, '\n'),
     remarks: d.remarks,
     createdBy: d.createdBy?.name,
     createdAt: formatDate(d.createdAt),

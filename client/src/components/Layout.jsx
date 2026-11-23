@@ -20,6 +20,7 @@ export default function Layout() {
           { to: '/admin/users', label: 'Users' },
           { to: '/admin/activities', label: 'Activities' },
           { to: '/admin/masters', label: 'Jamiat / Jamaat' },
+          { to: '/admin/audit', label: 'Audit Log' },
         ]
       : []),
     { to: '/change-password', label: 'Change Password' },

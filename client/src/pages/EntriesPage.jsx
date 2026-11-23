@@ -20,8 +20,10 @@ export default function EntriesPage({ kind }) {
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(null); // null | 'new' | item
   const [exporting, setExporting] = useState(false);
+  const [showDeleted, setShowDeleted] = useState(false); // Super Admin: view soft-deleted entries
 
-  const colCount = 6 + cfg.textFields.length + (isAdmin ? 0 : 1);
+  const hasActions = !isAdmin || showDeleted;
+  const colCount = 6 + cfg.textFields.length + (hasActions ? 1 : 0);
   const jamiats = useJamiats();
   const jamaats = useJamaats(filters.jamiat);
   const activities = useActivities(cfg.activityType);
@@ -30,13 +32,13 @@ export default function EntriesPage({ kind }) {
     setLoading(true);
     setError('');
     try {
-      setData(await api.get(`${cfg.endpoint}${qs({ ...filters, page, limit: 20 })}`));
+      setData(await api.get(`${cfg.endpoint}${qs({ ...filters, page, limit: 20, deleted: showDeleted ? 'true' : '' })}`));
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
-  }, [cfg.endpoint, filters, page]);
+  }, [cfg.endpoint, filters, page, showDeleted]);
 
   useEffect(() => {
     load();
@@ -48,8 +50,18 @@ export default function EntriesPage({ kind }) {
     setFilters((f) => ({ ...f, [key]: value, ...(key === 'jamiat' ? { jamaat: '' } : {}) }));
   };
 
+  const onRestore = async (item) => {
+    setError('');
+    try {
+      await api.post(`${cfg.endpoint}/${item._id}/restore`);
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const onDelete = async (item) => {
-    if (!window.confirm(`Delete this ${cfg.title.toLowerCase()} entry for ${item.jamaat?.name}?`)) return;
+    if (!window.confirm(`Delete this ${cfg.title.toLowerCase()} entry for ${item.jamaat?.name}? The Super Admin can restore it.`)) return;
     try {
       await api.del(`${cfg.endpoint}/${item._id}`);
       load();
@@ -81,8 +93,21 @@ export default function EntriesPage({ kind }) {
           <h1 className="text-xl font-semibold">{cfg.title}</h1>
           <p className="text-sm text-slate-500">{cfg.subtitle}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {isAdmin && (
+            <label className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+              <input
+                type="checkbox"
+                checked={showDeleted}
+                onChange={(e) => {
+                  setShowDeleted(e.target.checked);
+                  setPage(1);
+                }}
+              />
+              Show deleted entries
+            </label>
+          )}
+          {isAdmin && !showDeleted && (
             <button className="btn-secondary" onClick={onExport} disabled={exporting}>
               {exporting ? 'Exporting…' : 'Export to Excel'}
             </button>
@@ -141,8 +166,8 @@ export default function EntriesPage({ kind }) {
               {cfg.textFields.map((f) => (
                 <th key={f.key} className="th">{f.label}</th>
               ))}
-              <th className="th">Entered by</th>
-              {!isAdmin && <th className="th text-right">Actions</th>}
+              <th className="th">{showDeleted ? 'Deleted by' : 'Entered by'}</th>
+              {hasActions && <th className="th text-right">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -189,9 +214,24 @@ export default function EntriesPage({ kind }) {
                     </td>
                   ))}
                   <td className="td text-xs text-slate-500">
-                    {item.createdBy?.name}
-                    <div>{fmtDate(item.createdAt)}</div>
+                    {showDeleted ? (
+                      <>
+                        <span className="text-red-600">{item.deletedBy?.name}</span>
+                        <div>{fmtDate(item.deletedAt)}</div>
+                        <div className="mt-1">Entered by {item.createdBy?.name}</div>
+                      </>
+                    ) : (
+                      <>
+                        {item.createdBy?.name}
+                        <div>{fmtDate(item.createdAt)}</div>
+                      </>
+                    )}
                   </td>
+                  {isAdmin && showDeleted && (
+                    <td className="td whitespace-nowrap text-right">
+                      <button className="text-indigo-600 hover:underline" onClick={() => onRestore(item)}>Restore</button>
+                    </td>
+                  )}
                   {!isAdmin && (
                     <td className="td whitespace-nowrap text-right">
                       <button className="mr-3 text-indigo-600 hover:underline" onClick={() => setEditing(item)}>Edit</button>

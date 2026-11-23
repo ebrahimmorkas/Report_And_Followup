@@ -5,6 +5,7 @@ import Jamiat from '../models/Jamiat.js';
 import { normalizeMobile } from '../utils/mobile.js';
 import { isValidId } from '../utils/http.js';
 import { publicUser } from './auth.js';
+import { audit } from '../utils/audit.js';
 
 const router = Router();
 
@@ -16,6 +17,15 @@ async function validateJamiats(ids) {
 }
 
 const populateUser = (id) => User.findById(id).populate('jamiats', 'name isActive').lean();
+
+/** Readable user snapshot for the audit log (never includes the password). */
+const userSnap = (u) => ({
+  Name: u.name,
+  Mobile: u.mobile,
+  Role: u.role === ROLES.SUPER_ADMIN ? 'Super Admin' : 'JC',
+  Jamiats: (u.jamiats || []).map((j) => j.name).sort().join(', '),
+  Active: u.isActive ? 'Yes' : 'No',
+});
 
 /**
  * A Jamiat may belong to only one ACTIVE JC at a time (inactive JCs do not hold Jamiats).
@@ -46,7 +56,7 @@ async function findConflicts(jamiatIds, excludeUserId) {
  * - Conflicts and confirmed: removes those Jamiats from their current JCs, returns true.
  * Report / Follow-up entries belong to the Jamiat, so they move with it automatically.
  */
-async function checkOwnership(req, res, jamiatIds, excludeUserId) {
+async function checkOwnership(req, res, jamiatIds, excludeUserId, newOwnerName) {
   const conflicts = await findConflicts(jamiatIds, excludeUserId);
   if (!conflicts.length) return true;
 
@@ -58,7 +68,20 @@ async function checkOwnership(req, res, jamiatIds, excludeUserId) {
 
   const moving = conflicts.map((c) => c.jamiatId);
   const fromUsers = [...new Set(conflicts.map((c) => String(c.userId)))];
+  const befores = await Promise.all(fromUsers.map(populateUser));
   await User.updateMany({ _id: { $in: fromUsers } }, { $pull: { jamiats: { $in: moving } } });
+
+  for (const before of befores) {
+    const names = conflicts.filter((c) => String(c.userId) === String(before._id)).map((c) => c.jamiatName);
+    await audit(req, {
+      action: 'TRANSFER',
+      entity: 'User',
+      entityId: before._id,
+      summary: `Jamiat ${names.join(', ')} transferred from ${before.name} to ${newOwnerName}`,
+      before: userSnap(before),
+      after: userSnap(await populateUser(before._id)),
+    });
+  }
   return true;
 }
 
@@ -89,7 +112,7 @@ router.post('/', async (req, res) => {
     return res.status(409).json({ message: 'A user with this mobile number already exists' });
   }
 
-  if (role === ROLES.JC && !(await checkOwnership(req, res, jamiats, null))) return;
+  if (role === ROLES.JC && !(await checkOwnership(req, res, jamiats, null, name.trim()))) return;
 
   const user = await User.create({
     name: name.trim(),
@@ -98,13 +121,17 @@ router.post('/', async (req, res) => {
     role,
     jamiats,
   });
-  res.status(201).json({ user: publicUser(await populateUser(user._id)) });
+  const created = await populateUser(user._id);
+  await audit(req, { action: 'CREATE', entity: 'User', entityId: user._id, summary: `Added user ${created.name}`, after: userSnap(created) });
+  res.status(201).json({ user: publicUser(created) });
 });
 
 router.put('/:id', async (req, res) => {
   if (!isValidId(req.params.id)) return res.status(404).json({ message: 'User not found' });
   const user = await User.findById(req.params.id);
   if (!user) return res.status(404).json({ message: 'User not found' });
+  const before = userSnap(await populateUser(user._id));
+  let passwordReset = false;
 
   const isSelf = String(user._id) === String(req.user._id);
   const { name, password, isActive } = req.body || {};
@@ -149,14 +176,22 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ message: 'Password must be at least 6 characters' });
     user.password = await bcrypt.hash(password, 10);
     user.passwordChangedAt = new Date();
+    passwordReset = true;
   }
 
   // Ownership is checked last, so nothing is transferred if another validation fails.
   // Also covers re-activating a JC whose Jamiats were given to someone else meanwhile.
-  if (user.role === ROLES.JC && user.isActive && !(await checkOwnership(req, res, user.jamiats, user._id))) return;
+  if (user.role === ROLES.JC && user.isActive && !(await checkOwnership(req, res, user.jamiats, user._id, user.name))) return;
 
   await user.save();
-  res.json({ user: publicUser(await populateUser(user._id)) });
+  const updated = await populateUser(user._id);
+  const after = userSnap(updated);
+  if (passwordReset) {
+    before.Password = '';
+    after.Password = '(reset by admin)';
+  }
+  await audit(req, { action: 'UPDATE', entity: 'User', entityId: user._id, summary: `Edited user ${updated.name}`, before, after });
+  res.json({ user: publicUser(updated) });
 });
 
 export default router;
