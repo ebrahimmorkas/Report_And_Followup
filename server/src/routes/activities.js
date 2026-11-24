@@ -91,14 +91,46 @@ const ACTIVITY_DROPDOWNS = [
   { col: 'D', list: '"Yes,No"', error: 'Choose Yes or No' },
 ];
 
-router.get('/bulk/template', adminOnly, async (req, res) => {
-  const buffer = await buildWorkbook({
+/**
+ * Upload format: sheet 1 "Activities" is blank (headers + dropdowns) and is the sheet that gets uploaded.
+ * Sheet 2 "Example & Instructions" shows filled-in sample rows and the rules; it is never imported.
+ */
+export function buildActivityTemplate() {
+  return buildWorkbook({
     sheetName: 'Activities',
     headers: ACTIVITY_HEADERS,
     widths: [36, 14, 10, 12],
     validations: ACTIVITY_DROPDOWNS,
+    extra: [
+      {
+        name: 'Example & Instructions',
+        widths: [36, 14, 10, 12],
+        boldRows: [1, 3, 10],
+        rows: [
+          ['EXAMPLE (fill your activities in the "Activities" sheet, not here)'],
+          [],
+          ACTIVITY_HEADERS,
+          ['Marathon', 'Riyadah', 'Yes', 'Yes'],
+          ['Cleanliness Drive', 'Nazafat', 'Yes', 'No'],
+          ['Eye Camp', 'Tibb', 'No', 'Yes'],
+          ['World Diabetes Day', 'Tibb', 'Yes', 'Yes'],
+          [],
+          [],
+          ['RULES'],
+          ['Name: activity name (required, must not already exist).'],
+          [`Category: ${CATEGORIES.join(', ')}.`],
+          ['Report: Yes = shown in the Report tab, No = not shown.'],
+          ['Follow-up: Yes = shown in the Follow-up tab, No = not shown.'],
+          ['At least one of Report / Follow-up must be Yes.'],
+          ['Only the first sheet ("Activities") is uploaded. Rows with mistakes are skipped and listed after upload.'],
+        ],
+      },
+    ],
   });
-  sendWorkbook(res, buffer, 'Activities_upload_format.xlsx');
+}
+
+router.get('/bulk/template', adminOnly, async (req, res) => {
+  sendWorkbook(res, await buildActivityTemplate(), 'Activities_upload_format.xlsx');
 });
 
 router.post('/bulk', adminOnly, rawExcel, async (req, res) => {

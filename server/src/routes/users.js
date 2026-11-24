@@ -106,7 +106,6 @@ router.post('/', async (req, res) => {
   if (role === ROLES.JC) {
     jamiats = await validateJamiats(req.body?.jamiats || []);
     if (!jamiats) return res.status(400).json({ message: 'Invalid Jamiat selection' });
-    if (!jamiats.length) return res.status(400).json({ message: 'Assign at least one Jamiat to a JC' });
   }
 
   if (await User.exists({ mobile })) {
@@ -164,7 +163,6 @@ router.put('/:id', async (req, res) => {
       if (!jamiats) return res.status(400).json({ message: 'Invalid Jamiat selection' });
       user.jamiats = jamiats;
     }
-    if (!user.jamiats.length) return res.status(400).json({ message: 'Assign at least one Jamiat to a JC' });
   } else {
     user.jamiats = [];
   }
@@ -213,7 +211,29 @@ router.get('/bulk/template', async (req, res) => {
     sheetName: 'Sheet1',
     headers: USER_HEADERS,
     widths: [32, 16, 16, 40],
-    extra: [{ name: 'Jamiat names', bold: true, rows: [['Valid Jamiat names (separate several with commas)'], ...jamiats.map((j) => [j.name])] }],
+    extra: [
+      {
+        name: 'Example & Instructions',
+        widths: [32, 16, 16, 40],
+        boldRows: [1, 3, 8],
+        rows: [
+          ['EXAMPLE (fill your users in "Sheet1", not here)'],
+          [],
+          USER_HEADERS,
+          ['Abbas Bhai Example', '9800000001', 'pass123', 'Surat'],
+          ['Hussain Bhai Example', '+91 98000 00002', 'secret9', 'Nagpur, Rampura'],
+          [],
+          [],
+          ['RULES'],
+          ['Name: required.'],
+          ['Mobile: 10 digits (+91 is removed automatically). Must not already be a user.'],
+          ['Password: at least 6 characters.'],
+          ['Jamiat: one or more Jamiat names separated by commas (see the "Jamiat names" sheet). A Jamiat can belong to only one JC. Leave empty to create the user without access (assign a Jamiat later).'],
+          ['Every user is added as a JC. Only the first sheet is uploaded. Rows with mistakes are skipped and listed after upload.'],
+        ],
+      },
+      { name: 'Jamiat names', bold: true, rows: [['Valid Jamiat names (separate several with commas)'], ...jamiats.map((j) => [j.name])] },
+    ],
   });
   sendWorkbook(res, buffer, 'Users_upload_format.xlsx');
 });
@@ -248,7 +268,7 @@ router.post('/bulk', rawExcel, async (req, res) => {
     if (values.password.length < 6) { fail('Password must be at least 6 characters'); continue; }
 
     const names = [...new Set(values.jamiat.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean))];
-    if (!names.length) { fail('Jamiat is missing'); continue; }
+    // An empty Jamiat cell is allowed: the JC is created without access until a Jamiat is assigned.
     const unknown = names.filter((n) => !jamiatByName.has(n.toLowerCase()));
     if (unknown.length) { fail(`Unknown Jamiat: ${unknown.join(', ')}`); continue; }
     const picked = names.map((n) => jamiatByName.get(n.toLowerCase()));

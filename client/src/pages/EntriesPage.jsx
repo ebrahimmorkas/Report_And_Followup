@@ -33,7 +33,8 @@ function SortHeader({ label, sortKey, sort, onSort }) {
 
 export default function EntriesPage({ kind }) {
   const cfg = KINDS[kind];
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
+  const noAccess = !isAdmin && !(user?.jamiats?.length > 0);
 
   const [filters, setFilters] = useState(emptyFilters);
   const [page, setPage] = useState(1);
@@ -126,6 +127,20 @@ export default function EntriesPage({ kind }) {
     setEditing(null);
     load();
   };
+
+  // A JC without any Jamiat has no access until the Super Admin assigns one.
+  if (noAccess) {
+    return (
+      <div className="card mx-auto mt-10 max-w-lg p-8 text-center">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-2xl font-bold text-amber-600">!</div>
+        <h1 className="text-lg font-semibold">No access</h1>
+        <p className="mt-2 text-sm text-slate-600">
+          No Jamiat has been assigned to you yet, so you cannot view or enter {cfg.title} data. Please contact the Super Admin.
+        </p>
+        <p className="mt-2 text-xs text-slate-400">Once a Jamiat is assigned, reload this page.</p>
+      </div>
+    );
+  }
 
   return (
     <div>

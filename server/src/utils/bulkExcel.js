@@ -93,11 +93,15 @@ export async function buildWorkbook({ sheetName, headers, rows = [], widths = []
       error: v.error || 'Choose a value from the list',
     });
   }
+  // Extra sheets (instructions, examples, lists). Upload only reads the first sheet, so these are never imported.
+  // `boldRows` = row numbers to make bold; `widths` = column widths.
   for (const s of extra) {
     const sheet = wb.addWorksheet(s.name);
     s.rows.forEach((r) => sheet.addRow(r));
-    sheet.getColumn(1).width = 30;
+    (s.widths || [30]).forEach((w, i) => (sheet.getColumn(i + 1).width = w));
     if (s.bold) sheet.getRow(1).font = { bold: true };
+    (s.boldRows || []).forEach((n) => (sheet.getRow(n).font = { bold: true }));
+    sheet.eachRow((row) => (row.alignment = { vertical: 'top', wrapText: true }));
   }
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../api';
+import { api, download } from '../../api';
 import Alert from '../../components/Alert';
 import Modal from '../../components/Modal';
 import BulkUpload from '../../components/BulkUpload';
@@ -107,6 +107,13 @@ export default function Activities() {
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
+          <button
+            className="btn-secondary whitespace-nowrap"
+            title="Blank Excel format with an example sheet"
+            onClick={() => download('/activities/bulk/template', 'Activities_upload_format.xlsx').catch((e) => setError(e.message))}
+          >
+            Download format
+          </button>
           <button className="btn-secondary whitespace-nowrap" onClick={() => setEditing('bulk')}>Bulk upload</button>
           <button className="btn-primary whitespace-nowrap" onClick={() => setEditing('new')}>+ Add Activity</button>
         </div>

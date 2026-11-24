@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../../api';
+import { api, download } from '../../api';
 import { useAuth } from '../../auth/AuthContext';
 import { useJamiats } from '../../hooks';
 import Alert from '../../components/Alert';
@@ -49,7 +49,6 @@ function UserForm({ initial, users, onSaved, onCancel }) {
 
   const save = async (transfer) => {
     setError('');
-    if (form.role === 'JC' && jamiats.size === 0) return setError('Assign at least one Jamiat');
     setBusy(true);
     const body = { ...form, jamiats: form.role === 'JC' ? [...jamiats] : [], transfer };
     if (initial && !body.password) delete body.password;
@@ -142,7 +141,7 @@ function UserForm({ initial, users, onSaved, onCancel }) {
       {form.role === 'JC' && (
         <div>
           <div className="mb-1 flex items-center justify-between">
-            <label className="label mb-0">Jamiats * <span className="font-normal text-slate-500">({jamiats.size} selected)</span></label>
+            <label className="label mb-0">Jamiats <span className="font-normal text-slate-500">({jamiats.size} selected)</span></label>
             <input className="input max-w-48 py-1" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
           <div className="grid max-h-56 gap-1 overflow-y-auto rounded-md border border-slate-200 p-2 sm:grid-cols-2">
@@ -207,6 +206,13 @@ export default function Users() {
         </div>
         <div className="flex gap-2">
           <input className="input w-56" placeholder="Search name, mobile, Jamiat" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <button
+            className="btn-secondary whitespace-nowrap"
+            title="Blank Excel format with an example sheet"
+            onClick={() => download('/users/bulk/template', 'Users_upload_format.xlsx').catch((e) => setError(e.message))}
+          >
+            Download format
+          </button>
           <button className="btn-secondary whitespace-nowrap" onClick={() => setEditing('bulk')}>Bulk upload</button>
           <button className="btn-primary whitespace-nowrap" onClick={() => setEditing('new')}>+ Add User</button>
         </div>
@@ -240,7 +246,7 @@ export default function Users() {
                   ) : u.jamiats.length ? (
                     u.jamiats.map((j) => j.name).join(', ')
                   ) : (
-                    <span className="badge bg-amber-100 text-amber-700">No Jamiat assigned</span>
+                    <span className="badge bg-amber-100 text-amber-700">No Jamiat (no access)</span>
                   )}
                 </td>
                 <td className="td">
@@ -268,7 +274,7 @@ export default function Users() {
             columnsHint="Name | Mobile | Password | Jamiat"
             notes={[
               'Every user is added as a JC.',
-              'Several Jamiats in one cell are separated by commas, e.g. "Surat, Nasik".',
+              'Several Jamiats in one cell are separated by commas, e.g. "Surat, Nasik". Leave Jamiat empty to add a user without access.',
               'Rows with an existing mobile, an unknown Jamiat, or a Jamiat already assigned to another JC are not saved and are listed at the end.',
             ]}
             failedColumns={[
