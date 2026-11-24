@@ -49,7 +49,9 @@ if (!process.env.JWT_SECRET) {
 }
 
 const app = express();
-app.set('trust proxy', 1);
+// Number of proxies in front of the app, so req.ip is the visitor's real IP (used by the login rate limit).
+// Render alone = 1; Vercel (forwarding /api) + Render = 2.
+app.set('trust proxy', Number(process.env.TRUST_PROXY) || 1);
 app.use(helmet());
 if (process.env.CLIENT_ORIGIN) {
   app.use(cors({ origin: process.env.CLIENT_ORIGIN.split(','), credentials: true }));

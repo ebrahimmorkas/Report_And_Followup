@@ -58,3 +58,13 @@ cd ../server && NODE_ENV=production npm start   # serves the API and client/dist
 ```
 
 In production the cookie is `Secure`, so serve the app over HTTPS.
+
+## Deployment (live)
+
+- **Database:** MongoDB Atlas (Network Access allows `0.0.0.0/0` because Render's free plan has no fixed IP).
+- **API:** Render Web Service `https://report-and-followup-api.onrender.com`
+  Root `server`, build `npm ci`, start `npm start`, health check `/api/health`.
+  Env: `MONGODB_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `NODE_ENV=production`, `APP_TIMEZONE=Asia/Kolkata`, `TRUST_PROXY=2`.
+  Deployed from the public repo URL, so after each push use **Manual Deploy → Deploy latest commit**.
+- **Website:** Vercel project with root `client` (Vite). `client/vercel.json` forwards `/api/*` to Render, so the
+  site and API share one address and the HttpOnly login cookie works. If the Render address changes, update it there.
