@@ -4,6 +4,7 @@ import { requireRole } from '../middleware/auth.js';
 import { ROLES } from '../models/User.js';
 import { isValidId } from '../utils/http.js';
 import { audit } from '../utils/audit.js';
+import { buildWorkbook, rawExcel, readUpload, sendWorkbook, yesNo as yesNoCell } from '../utils/bulkExcel.js';
 
 const router = Router();
 const adminOnly = requireRole(ROLES.SUPER_ADMIN);
@@ -72,6 +73,83 @@ router.put('/:id', adminOnly, async (req, res) => {
   } catch (e) {
     duplicate(res, e);
   }
+});
+
+// ---------- Bulk upload (Excel): Name | Category | Report | Follow-up ----------
+// Bad rows never stop the upload; they are returned at the end with the reason.
+
+const ACTIVITY_COLUMNS = {
+  name: ['Name', 'Activity', 'Activity Name'],
+  category: ['Category'],
+  report: ['Report', 'Show in Report'],
+  followUp: ['Follow-up', 'Follow up', 'Followup', 'Show in Follow-up'],
+};
+const ACTIVITY_HEADERS = ['Name', 'Category', 'Report', 'Follow-up'];
+const ACTIVITY_DROPDOWNS = [
+  { col: 'B', list: `"${CATEGORIES.join(',')}"`, error: `Choose ${CATEGORIES.join(', ')}` },
+  { col: 'C', list: '"Yes,No"', error: 'Choose Yes or No' },
+  { col: 'D', list: '"Yes,No"', error: 'Choose Yes or No' },
+];
+
+router.get('/bulk/template', adminOnly, async (req, res) => {
+  const buffer = await buildWorkbook({
+    sheetName: 'Activities',
+    headers: ACTIVITY_HEADERS,
+    widths: [36, 14, 10, 12],
+    validations: ACTIVITY_DROPDOWNS,
+  });
+  sendWorkbook(res, buffer, 'Activities_upload_format.xlsx');
+});
+
+router.post('/bulk', adminOnly, rawExcel, async (req, res) => {
+  const { rows, error } = await readUpload(req.body, ACTIVITY_COLUMNS);
+  if (error) return res.status(400).json({ message: error });
+
+  const existing = new Set((await Activity.find().select('name').lean()).map((a) => a.name.toLowerCase()));
+  const seen = new Map(); // lowercase name -> row number in this file
+  const created = [];
+  const failed = [];
+
+  for (const { rowNumber, values } of rows) {
+    const fail = (reason) => failed.push({ row: rowNumber, ...values, reason });
+    const name = values.name.replace(/\s+/g, ' ');
+    if (!name) { fail('Name is missing'); continue; }
+    if (name.length > 100) { fail('Name is too long (max 100 characters)'); continue; }
+    const key = name.toLowerCase();
+    if (seen.has(key)) { fail(`Same activity as row ${seen.get(key)}`); continue; }
+    if (existing.has(key)) { fail('This activity already exists'); continue; }
+
+    const category = CATEGORIES.find((c) => c.toLowerCase() === values.category.toLowerCase());
+    if (!category) { fail(values.category ? `Unknown category "${values.category}" (use ${CATEGORIES.join(', ')})` : 'Category is missing'); continue; }
+
+    const showInReport = yesNoCell(values.report);
+    const showInFollowUp = yesNoCell(values.followUp);
+    if (showInReport === null) { fail('Report must be Yes or No'); continue; }
+    if (showInFollowUp === null) { fail('Follow-up must be Yes or No'); continue; }
+    if (!showInReport && !showInFollowUp) { fail('Report or Follow-up (or both) must be Yes'); continue; }
+
+    try {
+      const activity = await Activity.create({ name, category, showInReport, showInFollowUp });
+      existing.add(key);
+      seen.set(key, rowNumber);
+      await audit(req, { action: 'CREATE', entity: 'Activity', entityId: activity._id, summary: `Added activity ${name} (Excel upload)`, after: snap(activity) });
+      created.push({ row: rowNumber, name, category, report: yesNo(showInReport), followUp: yesNo(showInFollowUp) });
+    } catch (e) {
+      fail(e.code === 11000 ? 'This activity already exists' : 'Could not save this row');
+    }
+  }
+
+  const failedFile = failed.length
+    ? (await buildWorkbook({
+        sheetName: 'Activities',
+        headers: [...ACTIVITY_HEADERS, 'Error'],
+        widths: [36, 14, 10, 12, 50],
+        rows: failed.map((f) => [f.name, f.category, f.report, f.followUp, `Row ${f.row}: ${f.reason}`]),
+        validations: ACTIVITY_DROPDOWNS,
+      })).toString('base64')
+    : null;
+
+  res.json({ total: rows.length, created, failed, failedFile });
 });
 
 export default router;

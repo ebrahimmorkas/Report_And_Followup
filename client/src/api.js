@@ -19,6 +19,18 @@ async function request(method, url, body) {
 }
 
 export const api = {
+  /** Sends a file (e.g. an .xlsx) as the raw request body. */
+  upload: async (url, file) => {
+    const res = await fetch(`/api${url}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || data.error || `Upload failed (${res.status})`);
+    return data;
+  },
   get: (url) => request('GET', url),
   post: (url, body) => request('POST', url, body ?? {}),
   put: (url, body) => request('PUT', url, body ?? {}),

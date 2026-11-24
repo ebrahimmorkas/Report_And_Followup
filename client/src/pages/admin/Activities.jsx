@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../api';
 import Alert from '../../components/Alert';
 import Modal from '../../components/Modal';
+import BulkUpload from '../../components/BulkUpload';
 import { CATEGORIES, CATEGORY_STYLE } from '../../categories';
 
 function ActivityForm({ initial, onSaved, onCancel }) {
@@ -106,6 +107,7 @@ export default function Activities() {
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
+          <button className="btn-secondary whitespace-nowrap" onClick={() => setEditing('bulk')}>Bulk upload</button>
           <button className="btn-primary whitespace-nowrap" onClick={() => setEditing('new')}>+ Add Activity</button>
         </div>
       </div>
@@ -151,7 +153,29 @@ export default function Activities() {
           </tbody>
         </table>
       </div>
-      {editing && (
+      {editing === 'bulk' && (
+        <Modal title="Bulk upload activities (Excel)" onClose={() => setEditing(null)} wide>
+          <BulkUpload
+            endpoint="/activities"
+            templateName="Activities_upload_format.xlsx"
+            columnsHint="Name | Category | Report | Follow-up"
+            notes={[
+              'Category: Tibb, Riyadah or Nazafat.',
+              'Report and Follow-up: Yes or No (at least one must be Yes).',
+              'Activities that already exist are not added again and are listed at the end.',
+            ]}
+            failedColumns={[
+              { key: 'name', label: 'Name' },
+              { key: 'category', label: 'Category' },
+              { key: 'report', label: 'Report' },
+              { key: 'followUp', label: 'Follow-up' },
+            ]}
+            onDone={load}
+          />
+        </Modal>
+      )}
+
+      {editing && editing !== 'bulk' && (
         <Modal title={editing === 'new' ? 'Add Activity' : 'Edit Activity'} onClose={() => setEditing(null)}>
           <ActivityForm
             initial={editing === 'new' ? null : editing}

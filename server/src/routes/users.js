@@ -6,6 +6,7 @@ import { normalizeMobile } from '../utils/mobile.js';
 import { isValidId } from '../utils/http.js';
 import { publicUser } from './auth.js';
 import { audit } from '../utils/audit.js';
+import { buildWorkbook, rawExcel, readUpload, sendWorkbook } from '../utils/bulkExcel.js';
 
 const router = Router();
 
@@ -192,6 +193,110 @@ router.put('/:id', async (req, res) => {
   }
   await audit(req, { action: 'UPDATE', entity: 'User', entityId: user._id, summary: `Edited user ${updated.name}`, before, after });
   res.json({ user: publicUser(updated) });
+});
+
+// ---------- Bulk upload (Excel) ----------
+// Format = the user's own sheet: Name | Mobile | Password | Jamiat (several Jamiats separated by commas).
+// Every row becomes a JC. Bad rows never stop the upload; they are returned at the end with the reason.
+
+const USER_COLUMNS = {
+  name: ['Name'],
+  mobile: ['Mobile', 'Mobile Number', 'Mobile No'],
+  password: ['Password'],
+  jamiat: ['Jamiat', 'Jamiats'],
+};
+const USER_HEADERS = ['Name', 'Mobile', 'Password', 'Jamiat'];
+
+router.get('/bulk/template', async (req, res) => {
+  const jamiats = await Jamiat.find({ isActive: true }).sort({ name: 1 }).lean();
+  const buffer = await buildWorkbook({
+    sheetName: 'Sheet1',
+    headers: USER_HEADERS,
+    widths: [32, 16, 16, 40],
+    extra: [{ name: 'Jamiat names', bold: true, rows: [['Valid Jamiat names (separate several with commas)'], ...jamiats.map((j) => [j.name])] }],
+  });
+  sendWorkbook(res, buffer, 'Users_upload_format.xlsx');
+});
+
+router.post('/bulk', rawExcel, async (req, res) => {
+  const { rows, error } = await readUpload(req.body, USER_COLUMNS);
+  if (error) return res.status(400).json({ message: error });
+
+  const jamiats = await Jamiat.find().lean();
+  const jamiatByName = new Map(jamiats.map((j) => [j.name.toLowerCase(), j]));
+  // Current holder of each Jamiat (active JCs only); updated as rows are created.
+  const holder = new Map();
+  for (const u of await User.find({ role: ROLES.JC, isActive: true }).select('name jamiats').lean()) {
+    for (const j of u.jamiats) holder.set(String(j), u.name);
+  }
+  const existingMobiles = new Set((await User.find().select('mobile').lean()).map((u) => u.mobile));
+  const seenMobiles = new Map(); // mobile -> row number in this file
+
+  const created = [];
+  const failed = [];
+  for (const { rowNumber, values } of rows) {
+    const fail = (reason) => failed.push({ row: rowNumber, ...values, reason });
+    const name = values.name.replace(/\s+/g, ' ');
+    if (!name) { fail('Name is missing'); continue; }
+
+    const mobile = normalizeMobile(values.mobile);
+    if (!mobile) { fail(values.mobile ? 'Mobile must be a 10-digit number' : 'Mobile is missing'); continue; }
+    if (seenMobiles.has(mobile)) { fail(`Same mobile number as row ${seenMobiles.get(mobile)}`); continue; }
+    if (existingMobiles.has(mobile)) { fail('A user with this mobile number already exists'); continue; }
+
+    if (!values.password) { fail('Password is missing'); continue; }
+    if (values.password.length < 6) { fail('Password must be at least 6 characters'); continue; }
+
+    const names = [...new Set(values.jamiat.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean))];
+    if (!names.length) { fail('Jamiat is missing'); continue; }
+    const unknown = names.filter((n) => !jamiatByName.has(n.toLowerCase()));
+    if (unknown.length) { fail(`Unknown Jamiat: ${unknown.join(', ')}`); continue; }
+    const picked = names.map((n) => jamiatByName.get(n.toLowerCase()));
+    const inactive = picked.filter((j) => !j.isActive);
+    if (inactive.length) { fail(`Inactive Jamiat: ${inactive.map((j) => j.name).join(', ')}`); continue; }
+    const taken = picked.filter((j) => holder.has(String(j._id)));
+    if (taken.length) {
+      fail(`Already assigned: ${taken.map((j) => `${j.name} (to ${holder.get(String(j._id))})`).join(', ')}`);
+      continue;
+    }
+
+    try {
+      const user = await User.create({
+        name,
+        mobile,
+        password: await bcrypt.hash(values.password, 10),
+        role: ROLES.JC,
+        jamiats: picked.map((j) => j._id),
+      });
+      existingMobiles.add(mobile);
+      seenMobiles.set(mobile, rowNumber);
+      picked.forEach((j) => holder.set(String(j._id), name));
+      const full = await populateUser(user._id);
+      await audit(req, { action: 'CREATE', entity: 'User', entityId: user._id, summary: `Added user ${name} (Excel upload)`, after: userSnap(full) });
+      created.push({ row: rowNumber, name, mobile, jamiats: picked.map((j) => j.name).join(', ') });
+    } catch (e) {
+      if (e.code === 11000) fail('A user with this mobile number already exists');
+      else fail('Could not save this row');
+    }
+  }
+
+  // Failed rows in the same format (+ Error column) so they can be fixed and uploaded again.
+  const failedFile = failed.length
+    ? (await buildWorkbook({
+        sheetName: 'Sheet1',
+        headers: [...USER_HEADERS, 'Error'],
+        widths: [32, 16, 16, 40, 50],
+        rows: failed.map((f) => [f.name, f.mobile, f.password, f.jamiat, `Row ${f.row}: ${f.reason}`]),
+      })).toString('base64')
+    : null;
+
+  res.json({
+    total: rows.length,
+    created,
+    // Passwords are only in the downloadable file, never in the list shown on screen.
+    failed: failed.map(({ password, ...f }) => f),
+    failedFile,
+  });
 });
 
 export default router;

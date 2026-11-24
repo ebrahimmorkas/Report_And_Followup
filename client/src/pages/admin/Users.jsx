@@ -5,6 +5,7 @@ import { useJamiats } from '../../hooks';
 import Alert from '../../components/Alert';
 import Modal from '../../components/Modal';
 import PasswordInput from '../../components/PasswordInput';
+import BulkUpload from '../../components/BulkUpload';
 
 const ROLE_LABEL = { SUPER_ADMIN: 'Super Admin', JC: 'JC' };
 
@@ -206,7 +207,8 @@ export default function Users() {
         </div>
         <div className="flex gap-2">
           <input className="input w-56" placeholder="Search name, mobile, Jamiat" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <button className="btn-primary" onClick={() => setEditing('new')}>+ Add User</button>
+          <button className="btn-secondary whitespace-nowrap" onClick={() => setEditing('bulk')}>Bulk upload</button>
+          <button className="btn-primary whitespace-nowrap" onClick={() => setEditing('new')}>+ Add User</button>
         </div>
       </div>
       <Alert>{error}</Alert>
@@ -258,7 +260,28 @@ export default function Users() {
         </table>
       </div>
 
-      {editing && (
+      {editing === 'bulk' && (
+        <Modal title="Bulk upload users (Excel)" onClose={() => setEditing(null)} wide>
+          <BulkUpload
+            endpoint="/users"
+            templateName="Users_upload_format.xlsx"
+            columnsHint="Name | Mobile | Password | Jamiat"
+            notes={[
+              'Every user is added as a JC.',
+              'Several Jamiats in one cell are separated by commas, e.g. "Surat, Nasik".',
+              'Rows with an existing mobile, an unknown Jamiat, or a Jamiat already assigned to another JC are not saved and are listed at the end.',
+            ]}
+            failedColumns={[
+              { key: 'name', label: 'Name' },
+              { key: 'mobile', label: 'Mobile' },
+              { key: 'jamiat', label: 'Jamiat' },
+            ]}
+            onDone={load}
+          />
+        </Modal>
+      )}
+
+      {editing && editing !== 'bulk' && (
         <Modal title={editing === 'new' ? 'Add User' : 'Edit User'} onClose={() => setEditing(null)} wide>
           <UserForm
             initial={editing === 'new' ? null : editing}
