@@ -20,6 +20,7 @@ import FollowUp from './models/FollowUp.js';
 import AuditLog from './models/AuditLog.js';
 import auditRoutes from './routes/audit.js';
 import { backfillEntries } from './models/entryActivity.js';
+import { startKeepAlive } from './utils/keepAlive.js';
 import Activity from './models/Activity.js';
 
 /**
@@ -90,7 +91,13 @@ app.use((err, req, res, next) => {
 const port = Number(process.env.PORT) || 5000;
 connectDB()
   .then(prepareEntries)
-  .then(() => app.listen(port, () => console.log(`Server running on http://localhost:${port}`)))
+  .then(() =>
+    app.listen(port, () => {
+      console.log(`Server running on http://localhost:${port}`);
+      // Stops Render's free plan from putting the server to sleep (does nothing elsewhere).
+      startKeepAlive();
+    })
+  )
   .catch((err) => {
     console.error('Failed to start:', err.message);
     process.exit(1);
