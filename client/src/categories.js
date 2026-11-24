@@ -1,10 +1,11 @@
 /** Activity categories (same list as the server). */
-export const CATEGORIES = ['Tibb', 'Riyadah', 'Nazafat'];
+export const CATEGORIES = ['Tibb', 'Riyadah', 'Nazafat', 'Project'];
 
 export const CATEGORY_STYLE = {
   Tibb: 'bg-rose-50 text-rose-700',
   Riyadah: 'bg-sky-50 text-sky-700',
   Nazafat: 'bg-emerald-50 text-emerald-700',
+  Project: 'bg-violet-50 text-violet-700',
 };
 
 /** Category of an entry: listed activity's category, or the one picked for a new activity. */

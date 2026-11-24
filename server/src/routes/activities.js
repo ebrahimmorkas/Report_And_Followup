@@ -105,13 +105,14 @@ export function buildActivityTemplate() {
       {
         name: 'Example & Instructions',
         widths: [36, 14, 10, 12],
-        boldRows: [1, 3, 10],
+        boldRows: [1, 3, 11],
         rows: [
           ['EXAMPLE (fill your activities in the "Activities" sheet, not here)'],
           [],
           ACTIVITY_HEADERS,
           ['Marathon', 'Riyadah', 'Yes', 'Yes'],
           ['Cleanliness Drive', 'Nazafat', 'Yes', 'No'],
+          ['Community Kitchen Project', 'Project', 'No', 'Yes'],
           ['Eye Camp', 'Tibb', 'No', 'Yes'],
           ['World Diabetes Day', 'Tibb', 'Yes', 'Yes'],
           [],

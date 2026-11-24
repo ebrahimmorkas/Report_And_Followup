@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 
 /** Activity categories. */
-export const CATEGORIES = ['Tibb', 'Riyadah', 'Nazafat'];
+export const CATEGORIES = ['Tibb', 'Riyadah', 'Nazafat', 'Project'];
 
 const activitySchema = new mongoose.Schema(
   {

@@ -98,7 +98,7 @@ export default function Activities() {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Activities</h1>
-          <p className="text-sm text-slate-500">Each activity has a category (Tibb, Riyadah, Nazafat) and appears in Report, Follow-up, or both</p>
+          <p className="text-sm text-slate-500">Each activity has a category (Tibb, Riyadah, Nazafat, Project) and appears in Report, Follow-up, or both</p>
         </div>
         <div className="flex gap-2">
           <select className="input w-44" value={category} onChange={(e) => setCategory(e.target.value)}>
@@ -167,7 +167,7 @@ export default function Activities() {
             templateName="Activities_upload_format.xlsx"
             columnsHint="Name | Category | Report | Follow-up"
             notes={[
-              'Category: Tibb, Riyadah or Nazafat.',
+              'Category: Tibb, Riyadah, Nazafat or Project.',
               'Report and Follow-up: Yes or No (at least one must be Yes).',
               'Activities that already exist are not added again and are listed at the end.',
             ]}
